@@ -1,0 +1,94 @@
+# AI Workspace backend configuration.
+# Every value can be overridden with environment variables (explicit placeholders below, or Spring's relaxed
+# binding, e.g. LLM_PROVIDERS_QWEN_TIMEOUT=PT300S).
+
+spring:
+  application:
+    name: ai-workspace
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/aichat}
+    username: ${DB_USERNAME:aichat}
+    password: ${DB_PASSWORD:aichat}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      connection-timeout: 10000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  mvc:
+    async:
+      # Upper bound for a streamed answer (local models can be slow).
+      request-timeout: ${CHAT_STREAM_TIMEOUT:PT15M}
+    problemdetails:
+      enabled: true
+  jackson:
+    default-property-inclusion: always
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  port: ${SERVER_PORT:8088}
+  shutdown: graceful
+  # Trust X-Forwarded-* headers from the reverse proxy (needed for per-IP rate limits behind nginx).
+  forward-headers-strategy: native
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  info:
+    env:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        llm.request.duration: true
+        http.server.requests: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+info:
+  app:
+    name: AI Workspace
+    description: Provider-agnostic AI chat
+
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"
+  level:
+    root: INFO
+    com.example.aichat: INFO
+    # Never log request/response bodies or headers of LLM calls (prompts and API keys).
+    org.springframework.web.reactive.function.client: WARN
+    reactor.netty.http.client: WARN
+    org.hibernate.SQL: WARN
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
