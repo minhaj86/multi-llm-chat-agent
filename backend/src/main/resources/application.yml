@@ -92,3 +92,119 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /v3/api-docs
+
+# --------------------------------------------------------------------------------------------------------------------
+# LLM providers. Add a provider by adding an entry; "type" selects the adapter (openai | openai-compatible),
+# "family" optional model-family tweaks (qwen | llama), "engine" the OpenAI-compatible server
+# (generic | ollama | vllm | llama-cpp | lm-studio | localai | sglang).
+# --------------------------------------------------------------------------------------------------------------------
+llm:
+  default-provider: ${LLM_DEFAULT_PROVIDER:openai}
+  health:
+    check-interval: ${LLM_HEALTH_INTERVAL:PT30S}
+    initial-delay: PT2S
+  models-cache-ttl: PT2M
+  settings-reload-interval: PT15S
+
+  providers:
+    openai:
+      enabled: ${OPENAI_ENABLED:true}
+      type: openai
+      display-name: OpenAI
+      kind: CLOUD
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      organization: ${OPENAI_ORGANIZATION:}
+      project: ${OPENAI_PROJECT:}
+      default-model: ${OPENAI_MODEL:gpt-5.6-sol}
+      # Comma separated allow-list shown in the UI; empty = discover chat models via GET /v1/models
+      models: ${OPENAI_MODELS:}
+      temperature: ${OPENAI_TEMPERATURE:}
+      max-tokens: ${OPENAI_MAX_TOKENS:8192}
+      timeout: ${OPENAI_TIMEOUT:PT120S}
+      connect-timeout: PT10S
+      health-timeout: PT10S
+      store: false
+      reasoning-model-prefixes: ${OPENAI_REASONING_MODEL_PREFIXES:o1,o3,o4,gpt-5}
+      reasoning-effort: ${OPENAI_REASONING_EFFORT:}
+      reasoning-disabled-effort: ${OPENAI_REASONING_DISABLED_EFFORT:low}
+      retry:
+        max-attempts: 2
+        initial-backoff: PT0.5S
+        max-rate-limit-wait: PT5S
+      circuit-breaker:
+        failure-rate-threshold: 50
+        sliding-window-size: 20
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: PT30S
+      # USD per 1M tokens (verify against current OpenAI pricing). Longest matching model prefix wins.
+      pricing:
+        - { model: gpt-5-nano, input-per-million: 0.05, output-per-million: 0.40 }
+        - { model: gpt-5-mini, input-per-million: 0.25, output-per-million: 2.00 }
+        - { model: gpt-5, input-per-million: 1.25, output-per-million: 10.00 }
+        - { model: gpt-4.1-nano, input-per-million: 0.10, output-per-million: 0.40 }
+        - { model: gpt-4.1-mini, input-per-million: 0.40, output-per-million: 1.60 }
+        - { model: gpt-4.1, input-per-million: 2.00, output-per-million: 8.00 }
+        - { model: gpt-4o-mini, input-per-million: 0.15, output-per-million: 0.60 }
+        - { model: gpt-4o, input-per-million: 2.50, output-per-million: 10.00 }
+        - { model: o4-mini, input-per-million: 1.10, output-per-million: 4.40 }
+        - { model: o3, input-per-million: 2.00, output-per-million: 8.00 }
+      default-pricing:
+        input-per-million: ${OPENAI_PRICE_INPUT_PER_MILLION:1.25}
+        output-per-million: ${OPENAI_PRICE_OUTPUT_PER_MILLION:10.00}
+
+    qwen:
+      enabled: ${QWEN_ENABLED:true}
+      type: openai-compatible
+      family: qwen
+      engine: ${QWEN_ENGINE:generic}
+      display-name: Qwen Local
+      kind: LOCAL
+      base-url: ${QWEN_BASE_URL:http://localhost:8001/v1}
+      api-key: ${QWEN_API_KEY:local}
+      default-model: ${QWEN_MODEL:qwen}
+      models: ${QWEN_MODELS:}
+      temperature: ${QWEN_TEMPERATURE:0.7}
+      max-tokens: ${QWEN_MAX_TOKENS:4096}
+      # Local models may need time to load into memory before the first token arrives.
+      timeout: ${QWEN_TIMEOUT:PT180S}
+      connect-timeout: PT3S
+      health-timeout: PT5S
+      stream-usage: ${QWEN_STREAM_USAGE:true}
+      retry:
+        max-attempts: 2
+        initial-backoff: PT0.5S
+      circuit-breaker:
+        wait-duration-in-open-state: PT20S
+
+    llama:
+      enabled: ${LLAMA_ENABLED:true}
+      type: openai-compatible
+      family: llama
+      engine: ${LLAMA_ENGINE:generic}
+      display-name: Llama Local
+      kind: LOCAL
+      base-url: ${LLAMA_BASE_URL:http://localhost:8002/v1}
+      api-key: ${LLAMA_API_KEY:local}
+      default-model: ${LLAMA_MODEL:llama}
+      models: ${LLAMA_MODELS:}
+      temperature: ${LLAMA_TEMPERATURE:0.7}
+      max-tokens: ${LLAMA_MAX_TOKENS:4096}
+      timeout: ${LLAMA_TIMEOUT:PT180S}
+      connect-timeout: PT3S
+      health-timeout: PT5S
+      stream-usage: ${LLAMA_STREAM_USAGE:true}
+      retry:
+        max-attempts: 2
+        initial-backoff: PT0.5S
+      circuit-breaker:
+        wait-duration-in-open-state: PT20S
+
+    # Example: any other OpenAI-compatible server (Mistral/DeepSeek via vLLM, LM Studio, LocalAI, ...).
+    # mistral:
+    #   type: openai-compatible
+    #   engine: vllm
+    #   display-name: Mistral Local
+    #   kind: LOCAL
+    #   base-url: http://localhost:8003/v1
+    #   default-model: mistralai/Mistral-7B-Instruct-v0.3
