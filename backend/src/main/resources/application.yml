@@ -93,6 +93,37 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+chat:
+  max-message-length: ${CHAT_MAX_MESSAGE_LENGTH:32000}
+  max-concurrent-generations-per-user: 3
+  heartbeat-interval: PT15S
+  stale-generation-age: PT30M
+  context:
+    # FULL_CONTEXT | LAST_N_MESSAGES | TOKEN_WINDOW | SUMMARY_PLUS_RECENT
+    strategy: ${CHAT_CONTEXT_STRATEGY:SUMMARY_PLUS_RECENT}
+    max-context-tokens: ${CHAT_CONTEXT_MAX_TOKENS:8000}
+    last-n-messages: 20
+    summary-trigger-tokens: ${CHAT_SUMMARY_TRIGGER_TOKENS:6000}
+    summary-keep-recent-messages: 6
+    chars-per-token: 3.5
+  title:
+    # LLM | HEURISTIC
+    mode: ${CHAT_TITLE_MODE:LLM}
+    max-tokens: 512
+    timeout: PT45S
+    # Optional dedicated provider/model for titles (empty = provider of the conversation)
+    provider: ${CHAT_TITLE_PROVIDER:}
+    model: ${CHAT_TITLE_MODEL:}
+  summary:
+    enabled: true
+    max-tokens: 1024
+    max-messages-per-run: 40
+    timeout: PT3M
+    provider: ${CHAT_SUMMARY_PROVIDER:}
+    model: ${CHAT_SUMMARY_MODEL:}
+  compare:
+    max-targets: 4
+
 # --------------------------------------------------------------------------------------------------------------------
 # LLM providers. Add a provider by adding an entry; "type" selects the adapter (openai | openai-compatible),
 # "family" optional model-family tweaks (qwen | llama), "engine" the OpenAI-compatible server
