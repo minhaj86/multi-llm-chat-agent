@@ -93,6 +93,57 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+# --------------------------------------------------------------------------------------------------------------------
+# Application
+# --------------------------------------------------------------------------------------------------------------------
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3080}
+  security:
+    bcrypt-strength: ${BCRYPT_STRENGTH:12}
+    jwt:
+      # >= 32 bytes. When empty, a random key is generated at startup (tokens do not survive restarts).
+      secret: ${JWT_SECRET:}
+      issuer: ai-workspace
+      access-token-ttl: ${JWT_TTL:PT12H}
+  accounts:
+    registration-enabled: ${REGISTRATION_ENABLED:true}
+    # The first registered user becomes administrator if no administrator exists yet.
+    first-user-admin: ${FIRST_USER_ADMIN:true}
+    max-failed-logins: 5
+    lockout-duration: PT15M
+    bootstrap-admin:
+      username: ${ADMIN_USERNAME:}
+      password: ${ADMIN_PASSWORD:}
+      email: ${ADMIN_EMAIL:admin@localhost}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    rules:
+      - name: auth
+        paths: [ /api/auth/login, /api/auth/register ]
+        methods: [ POST ]
+        key: IP
+        capacity: 10
+        refill-period: PT1M
+      - name: chat
+        paths: [ /api/chat, /api/chat/stream, /api/chat/regenerate ]
+        methods: [ POST ]
+        key: USER
+        capacity: ${CHAT_RATE_LIMIT:30}
+        refill-period: PT1M
+      - name: compare
+        paths: [ /api/compare/** ]
+        methods: [ POST ]
+        key: USER
+        capacity: ${COMPARE_RATE_LIMIT:10}
+        refill-period: PT1M
+      - name: health-refresh
+        paths: [ /api/providers/*/health ]
+        methods: [ GET ]
+        key: USER
+        capacity: 30
+        refill-period: PT1M
+
 chat:
   max-message-length: ${CHAT_MAX_MESSAGE_LENGTH:32000}
   max-concurrent-generations-per-user: 3
