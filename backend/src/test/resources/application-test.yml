@@ -1,0 +1,60 @@
+# Integration-test profile: PostgreSQL comes from Testcontainers and every LLM endpoint from WireMock
+# (see AbstractIntegrationTest). No real provider is ever called.
+app:
+  security:
+    bcrypt-strength: 4
+    jwt:
+      secret: integration-test-secret-0123456789-abcdefghijklmnop
+  rate-limit:
+    enabled: false
+  accounts:
+    first-user-admin: false
+    bootstrap-admin:
+      username: admin
+      password: Admin-pass-123
+      email: admin@example.com
+
+llm:
+  default-provider: qwen
+  # Always read administrator overrides fresh (tests change them).
+  settings-reload-interval: PT0S
+  health:
+    initial-delay: PT1H
+    check-interval: PT1H
+  providers:
+    openai:
+      api-key: sk-test-integration-0123456789
+      default-model: gpt-5-mini
+      models: gpt-5-mini
+      timeout: PT10S
+    qwen:
+      engine: ollama
+      default-model: qwen3:8b
+      models: ""
+      timeout: PT10S
+    llama:
+      engine: ollama
+      default-model: llama3.1:8b
+      models: ""
+      timeout: PT10S
+    # Points at a closed port: simulates a local model server that is not running.
+    offline:
+      type: openai-compatible
+      display-name: Offline Local
+      kind: LOCAL
+      api-key: local
+      default-model: ghost
+      timeout: PT5S
+      retry:
+        max-attempts: 2
+        initial-backoff: PT0.05S
+
+chat:
+  title:
+    timeout: PT10S
+
+logging:
+  level:
+    com.example.aichat: INFO
+    org.testcontainers: WARN
+    com.github.tomakehurst: WARN
