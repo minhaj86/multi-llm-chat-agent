@@ -6,9 +6,10 @@ import { AppLayout } from './components/layout/AppLayout'
 import { useThemeSync } from './hooks/useTheme'
 import { LoginPage, RegisterPage } from './pages/AuthPages'
 import { ChatPage } from './pages/ChatPage'
-import { RequireAuth } from './pages/Guards'
+import { RequireAdmin, RequireAuth } from './pages/Guards'
 import { Spinner } from './components/ui/Spinner'
 
+const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })))
 const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ default: m.ComparePage })))
 
 function Lazy({ children }: { children: ReactNode }) {
@@ -44,6 +45,16 @@ const router = createBrowserRouter([
           <Lazy>
             <ComparePage />
           </Lazy>
+        ),
+      },
+      {
+        path: 'admin',
+        element: (
+          <RequireAdmin>
+            <Lazy>
+              <AdminPage />
+            </Lazy>
+          </RequireAdmin>
         ),
       },
     ],
