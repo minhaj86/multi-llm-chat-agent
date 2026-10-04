@@ -38,6 +38,7 @@ build/
 ### Mac OS ###
 .DS_Store
 ### Local environment ###
+.env
 node_modules/
 frontend/dist/
 frontend/coverage/
