@@ -1,6 +1,9 @@
 # AI Workspace - local stack.
 #
 #   docker compose up -d --build                       # frontend + backend + postgres
+#   docker compose --profile qwen --profile llama up -d  # + GPU model servers (vLLM / llama.cpp)
+#   docker compose --profile ollama up -d              # + Ollama (CPU or GPU) serving Qwen and Llama
+#   docker compose --profile monitoring up -d          # + Prometheus
 #
 # The application starts and works without any local model server; unavailable providers are shown as offline.
 
@@ -82,5 +85,116 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------------------------------------------
+  # Optional local model servers (GPU). Not required for the application to start.
+  # ---------------------------------------------------------------------------------------------------------------
+
+  # Qwen3 via vLLM (OpenAI-compatible, NVIDIA GPU). Served under the model name "qwen".
+  qwen:
+    profiles: [ qwen ]
+    image: vllm/vllm-openai:${VLLM_VERSION:-latest}
+    command:
+      - --model=${QWEN_HF_MODEL:-Qwen/Qwen3-8B}
+      - --served-model-name=qwen
+      - --max-model-len=${QWEN_MAX_MODEL_LEN:-16384}
+      - --reasoning-parser=qwen3
+      - --gpu-memory-utilization=${QWEN_GPU_MEMORY_UTILIZATION:-0.85}
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    ipc: host
+    ports:
+      - "127.0.0.1:8001:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8000/v1/models || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+    restart: unless-stopped
+
+  # Llama 3.1 via llama.cpp server (OpenAI-compatible, CUDA). Served under the alias "llama".
+  llama:
+    profiles: [ llama ]
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server-cuda}
+    command:
+      - -hf
+      - ${LLAMA_GGUF:-bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M}
+      - --alias
+      - llama
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --ctx-size
+      - "${LLAMA_CTX_SIZE:-16384}"
+      - --n-gpu-layers
+      - "${LLAMA_GPU_LAYERS:-99}"
+      - --jinja
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - llama-cache:/root/.cache/llama.cpp
+    ports:
+      - "127.0.0.1:8002:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8000/v1/models || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+    restart: unless-stopped
+
+  # Alternative: one Ollama server for both families (works on CPU; uses an NVIDIA GPU when available).
+  # Set QWEN_BASE_URL/LLAMA_BASE_URL=http://ollama:11434/v1, QWEN_MODEL=qwen3:8b, LLAMA_MODEL=llama3.1:8b,
+  # QWEN_ENGINE/LLAMA_ENGINE=ollama.
+  ollama:
+    profiles: [ ollama ]
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11435}:11434"
+    restart: unless-stopped
+
+  ollama-pull:
+    profiles: [ ollama ]
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: [ "/bin/sh", "-c", "sleep 3 && ollama pull ${OLLAMA_QWEN_MODEL:-qwen3:8b} && ollama pull ${OLLAMA_LLAMA_MODEL:-llama3.1:8b}" ]
+    depends_on:
+      - ollama
+    restart: "no"
+
+  prometheus:
+    profiles: [ monitoring ]
+    image: prom/prometheus:${PROMETHEUS_VERSION:-latest}
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  huggingface-cache:
+  llama-cache:
+  ollama-data:

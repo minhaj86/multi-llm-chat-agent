@@ -1,0 +1,10 @@
+# Scrapes the backend's Micrometer metrics (llm_requests_total, llm_request_duration_seconds, llm_input_tokens,
+# llm_output_tokens, llm_errors_total, llm_provider_up, resilience4j_*, http_server_requests_*, jvm_*).
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: ai-workspace-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [ "backend:8080" ]
