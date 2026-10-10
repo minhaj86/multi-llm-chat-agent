@@ -9,9 +9,9 @@ model at any time, even in the middle of a conversation, without restarting anyt
 - **Frontend:** React 19 · TypeScript · Vite · Tailwind CSS · TanStack Query · Zustand
 - **Infrastructure:** Docker Compose (frontend + backend + PostgreSQL, optional GPU model servers, Prometheus)
 
-[Features](#features) · [Quick start](#quick-start-docker-compose) · [Architecture](#architecture) ·
-[Configuration](#configuration) · [API](#api) · [Adding a provider](#adding-a-new-provider) ·
-[Troubleshooting](#troubleshooting)
+[Features](#features) · [Quick start](#quick-start-docker-compose) · [Scripts](#scripts) ·
+[Architecture](#architecture) · [Configuration](#configuration) · [API](#api) ·
+[Adding a provider](#adding-a-new-provider) · [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -50,6 +50,18 @@ model at any time, even in the middle of a conversation, without restarting anyt
 ## Quick start (Docker Compose)
 
 ```bash
+scripts/deploy.sh          # creates .env on first run, builds, starts and waits until everything is healthy
+scripts/status.sh          # health of containers, endpoints, database and LLM providers
+```
+
+On the first run `deploy.sh` copies `.env.example` to `.env` with a generated `JWT_SECRET`, `POSTGRES_PASSWORD` and
+`ADMIN_PASSWORD`. If Ollama runs on this machine, Qwen and Llama are pointed at it automatically. Add
+`OPENAI_API_KEY` to `.env` to enable OpenAI, then run `scripts/deploy.sh up --no-build`. The scripts detect Docker or
+Podman and the available compose command by themselves.
+
+Manual alternative:
+
+```bash
 cp .env.example .env
 # edit .env: set JWT_SECRET, ADMIN_PASSWORD and (optionally) OPENAI_API_KEY and the Qwen/Llama endpoints
 docker compose up -d --build
@@ -68,9 +80,9 @@ registered user becomes administrator when no administrator exists).
 The application starts and works **without** any local model server — unavailable providers are simply shown as
 offline. Add local models any time (see below); the UI picks them up within 30 seconds, no restart required.
 
-> **Podman users:** `docker compose` works with Podman when `DOCKER_HOST` points at the Podman socket
-> (`podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}'`). The standalone `docker-compose`
-> binary or `podman compose` behave the same way.
+> **Podman users:** the scripts find the Podman socket automatically. For plain `docker compose`, point
+> `DOCKER_HOST` at the Podman socket (`podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}'`).
+> The standalone `docker-compose` binary or `podman compose` behave the same way.
 
 ### Local models
 
@@ -122,6 +134,21 @@ docker compose --profile monitoring up -d  # Prometheus on http://localhost:9090
 docker compose down                        # stop (keeps data)
 docker compose down -v                     # stop and delete the database volume
 ```
+
+### Scripts
+
+The scripts in `scripts/` wrap the common workflows. They run on macOS's bash 3.2 and Linux, work with Docker or
+Podman, and print `--help`. The `Makefile` offers shortcuts (`make help`).
+
+| Script | Purpose | Examples |
+|--------|---------|----------|
+| `scripts/deploy.sh` | Deploy and operate the Compose stack: `up` (default), `down`, `restart`, `logs`, `ps`. Creates `.env` on the first run, validates configuration and ports, waits for readiness | `scripts/deploy.sh up --profile ollama`<br>`scripts/deploy.sh up --no-build`<br>`scripts/deploy.sh logs backend`<br>`scripts/deploy.sh down` |
+| `scripts/run-dev.sh` | Development mode with hot reload: PostgreSQL in a container, backend jar and Vite dev server on the host (`start`, `stop`, `restart`, `status`, `logs`). PIDs and logs in `.run/` | `scripts/run-dev.sh start`<br>`scripts/run-dev.sh logs backend`<br>`scripts/run-dev.sh stop --with-db` |
+| `scripts/status.sh` | Status check: containers, dev processes, endpoints, database, LLM providers (online/offline, default model) and direct model-server probes. Exit code 0 when usable | `scripts/status.sh`<br>`scripts/status.sh --json`<br>`scripts/status.sh --watch 5` |
+| `scripts/test.sh` | Run the test suites, configuring Testcontainers for Docker or Podman automatically | `scripts/test.sh`<br>`scripts/test.sh backend --test ChatFlowIntegrationTest`<br>`scripts/test.sh frontend` |
+
+Make targets: `up`, `up-fast`, `down`, `restart`, `logs`, `ps`, `status`, `watch`, `dev`, `dev-stop`, `dev-logs`,
+`test`, `test-backend`, `test-frontend` (for example `make up PROFILES="ollama monitoring"`).
 
 ---
 
@@ -376,6 +403,12 @@ credentials stay in configuration (environment) and are only ever shown masked.
 
 ## Running without Docker
 
+The quickest way is `scripts/run-dev.sh start`. It starts PostgreSQL in a container, builds and runs the backend jar
+(http://localhost:8088) and the Vite dev server (http://localhost:5173) using the values from `.env`, and translates
+container host names such as `host.docker.internal` to `localhost`. Stop everything with `scripts/run-dev.sh stop`.
+
+To do the same by hand:
+
 Prerequisites: **JDK 21+**, **Node.js 20+** (tested with 24), **PostgreSQL 15+** (or `docker compose up -d postgres`),
 and optionally Ollama or another OpenAI-compatible server.
 
@@ -506,6 +539,7 @@ event: title      {"conversationId","title"}      generated title of a new conve
 ## Testing
 
 ```bash
+scripts/test.sh                 # frontend checks, then all backend tests (container engine auto-configured)
 cd backend && ./mvnw verify     # 95 tests: unit, WireMock adapter tests, Testcontainers integration tests
 cd frontend && npm test         # Vitest + React Testing Library
 ```
@@ -595,6 +629,9 @@ automatically. Add a WireMock test like `OpenAiLlmProviderTest`.
 ---
 
 ## Troubleshooting
+
+Start with `scripts/status.sh`: it shows which component is down, and probes the model servers directly from your
+machine.
 
 | Symptom | Fix |
 |---------|-----|
