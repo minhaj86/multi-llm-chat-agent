@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { DoneEvent, StreamErrorEvent } from '../api/types'
+import type { DoneEvent, KnowledgeCitation, StreamErrorEvent } from '../api/types'
 
 /** Slot used for an exchange that starts a new conversation (before the server assigned an id). */
 export const NEW_CHAT_SLOT = '__new__'
@@ -17,6 +17,9 @@ export interface PendingAssistant {
   error: StreamErrorEvent | null
   metrics: DoneEvent | null
   startedAt: number
+  /** Knowledge-base sources of the answer (null while not requested / not yet retrieved). */
+  citations: KnowledgeCitation[] | null
+  knowledgeNotice: string | null
 }
 
 /** A user message and the assistant answer currently being streamed (or just finished) for one conversation. */

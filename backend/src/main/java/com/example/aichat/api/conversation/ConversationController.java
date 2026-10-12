@@ -3,6 +3,7 @@ package com.example.aichat.api.conversation;
 import com.example.aichat.api.conversation.ConversationDtos.ConversationDetailResponse;
 import com.example.aichat.api.conversation.ConversationDtos.ConversationResponse;
 import com.example.aichat.api.conversation.ConversationDtos.CreateConversationRequest;
+import com.example.aichat.api.conversation.ConversationDtos.KnowledgeSelection;
 import com.example.aichat.api.conversation.ConversationDtos.MessageResponse;
 import com.example.aichat.api.conversation.ConversationDtos.RenameConversationRequest;
 import com.example.aichat.api.conversation.ConversationDtos.SystemPromptSelection;
@@ -71,6 +72,13 @@ public class ConversationController {
                                                    @PathVariable("id") UUID id,
                                                    @RequestBody SystemPromptSelection request) {
         return ConversationResponse.of(conversations.changeSystemPrompt(user.id(), id, request.systemPromptId()));
+    }
+
+    @PutMapping("/{id}/knowledge")
+    public ConversationResponse changeKnowledge(@AuthenticationPrincipal CurrentUser user,
+                                                @PathVariable("id") UUID id,
+                                                @Valid @RequestBody KnowledgeSelection request) {
+        return ConversationResponse.of(conversations.changeKnowledge(user.id(), id, request.toSettings()));
     }
 
     @DeleteMapping("/{id}")

@@ -34,6 +34,8 @@ const exchange = (overrides: Partial<PendingExchange> = {}): PendingExchange => 
     error: null,
     metrics: null,
     startedAt: 0,
+    citations: null,
+    knowledgeNotice: null,
   },
   ...overrides,
 })
@@ -66,6 +68,31 @@ describe('toChatItems', () => {
     const server = [message('u1', 'user', 'q'), message('a1', 'assistant', 'old answer', 'qwen')]
     const items = toChatItems(server, exchange({ regenerate: true, userMessage: null }), names)
     expect(items.map((i) => i.content)).toEqual(['q', 'partial'])
+  })
+
+  it('carries knowledge citations for persisted and streaming answers', () => {
+    const citation = {
+      index: 1,
+      sourceId: 'src-1',
+      chunkId: 'chunk-1',
+      title: 'Pricing Architecture.pdf',
+      pageNumber: 14,
+      sectionTitle: null,
+      collectionName: 'Engineering',
+      score: 0.91,
+    }
+    const persisted = { ...message('a1', 'assistant', 'answer [1]', 'qwen'), citations: [citation] }
+    const streaming = exchange({
+      assistant: { ...exchange().assistant, citations: [{ ...citation, index: 2 }], knowledgeNotice: 'Only 1 source matched.' },
+    })
+
+    const items = toChatItems([message('u1', 'user', 'q'), persisted], streaming, names)
+
+    expect(items[1].citations).toEqual([citation])
+    expect(items[1].knowledgeNotice).toBeNull()
+    expect(items.at(-1)?.citations.map((c) => c.index)).toEqual([2])
+    expect(items.at(-1)?.knowledgeNotice).toBe('Only 1 source matched.')
+    expect(toChatItems([message('a1', 'assistant', 'plain', 'qwen')], undefined, names)[0].citations).toEqual([])
   })
 
   it('exposes errors with alternatives for the error notice', () => {

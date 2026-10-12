@@ -37,6 +37,8 @@ import reactor.core.publisher.Flux;
  *
  * <pre>
  * event: start      {"conversationId", "userMessageId", "assistantMessageId", "provider", "model", ...}
+ * event: citations  {"citations": [{"index", "sourceId", "chunkId", "title", "pageNumber", ...}], "notice"}
+ *                   (only when the conversation uses the knowledge base; sent before the first token)
  * event: reasoning  {"text": "..."}          (only for models exposing their reasoning)
  * event: delta      {"text": "..."}          (answer tokens)
  * event: done       {"status": "COMPLETE|CANCELLED", "inputTokens", "outputTokens", "latencyMs", ...}
@@ -106,7 +108,8 @@ public class ChatController {
 
     private static ChatCommand command(CurrentUser user, ChatRequest request, HttpServletRequest httpRequest) {
         return new ChatCommand(user.id(), request.conversationId(), request.message(), request.provider(),
-                request.model(), request.systemPromptId(), CorrelationIdFilter.current(httpRequest));
+                request.model(), request.systemPromptId(), CorrelationIdFilter.current(httpRequest),
+                request.knowledge() == null ? null : request.knowledge().toSettings());
     }
 
     static ServerSentEvent<Object> toSse(ChatEvent event) {
@@ -117,6 +120,7 @@ public class ChatController {
             case ChatEvent.Completed completed -> SseSupport.event("done", completed);
             case ChatEvent.Failed failed -> SseSupport.event("error", failed);
             case ChatEvent.TitleUpdated title -> SseSupport.event("title", title);
+            case ChatEvent.KnowledgeRetrieved knowledge -> SseSupport.event("citations", knowledge);
         };
     }
 }

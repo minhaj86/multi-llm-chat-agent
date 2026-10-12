@@ -1,4 +1,4 @@
-import type { FinishReason, Message, ProviderRef } from '../../api/types'
+import type { FinishReason, KnowledgeCitation, Message, ProviderRef } from '../../api/types'
 import type { ExchangeStatus, PendingExchange } from '../../store/chatStream'
 
 export interface ChatItemMetrics {
@@ -27,6 +27,10 @@ export interface ChatItem {
   alternatives: ProviderRef[] | null
   metrics: ChatItemMetrics | null
   persisted: boolean
+  /** Knowledge-base sources of an answer (empty when it did not use the knowledge base). */
+  citations: KnowledgeCitation[]
+  /** Explains why a knowledge-based answer has no sources (nothing found, knowledge base unavailable). */
+  knowledgeNotice: string | null
 }
 
 const STATUS: Record<Message['status'], ExchangeStatus> = {
@@ -52,6 +56,8 @@ function fromServer(message: Message, providerNames: Record<string, string>): Ch
     alternatives: null,
     metrics: message.metrics,
     persisted: true,
+    citations: message.citations ?? [],
+    knowledgeNotice: null,
   }
 }
 
@@ -99,6 +105,8 @@ export function toChatItems(
       alternatives: null,
       metrics: null,
       persisted: !!exchange.userMessage.id,
+      citations: [],
+      knowledgeNotice: null,
     })
   }
   const { assistant } = exchange
@@ -127,6 +135,8 @@ export function toChatItems(
         }
       : null,
     persisted: !!assistant.id,
+    citations: assistant.citations ?? [],
+    knowledgeNotice: assistant.knowledgeNotice,
   })
   return items
 }

@@ -7,5 +7,7 @@ public enum ExecutionPurpose {
     CHAT,
     COMPARE,
     TITLE,
-    SUMMARY
+    SUMMARY,
+    /** Answer generated from the admin knowledge-base test console. */
+    RAG_TEST
 }

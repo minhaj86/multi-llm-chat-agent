@@ -1,5 +1,6 @@
 package com.example.aichat.application.chat;
 
+import com.example.aichat.application.chat.knowledge.KnowledgeCitation;
 import com.example.aichat.application.provider.ProviderRef;
 import com.example.aichat.domain.conversation.MessageStatus;
 import com.example.aichat.domain.llm.FinishReason;
@@ -54,6 +55,17 @@ public sealed interface ChatEvent {
                   String providerName,
                   boolean retryable,
                   List<ProviderRef> alternatives) implements ChatEvent {
+    }
+
+    /**
+     * Knowledge-base retrieval finished for this answer (sent before the first token). {@code citations} refer to
+     * the bracketed numbers the model was asked to use; {@code notice} explains when no knowledge could be used.
+     */
+    record KnowledgeRetrieved(UUID conversationId,
+                              UUID assistantMessageId,
+                              List<KnowledgeCitation> citations,
+                              int retrievedCount,
+                              String notice) implements ChatEvent {
     }
 
     /** A generated conversation title became available. */

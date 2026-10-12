@@ -1,5 +1,7 @@
 package com.example.aichat.application.conversation;
 
+import com.example.aichat.application.chat.knowledge.KnowledgeAugmenter;
+import com.example.aichat.application.chat.knowledge.KnowledgeCitation;
 import com.example.aichat.application.common.ResourceNotFoundException;
 import com.example.aichat.application.common.ValidationException;
 import com.example.aichat.application.prompt.SystemPromptService;
@@ -7,6 +9,7 @@ import com.example.aichat.common.Texts;
 import com.example.aichat.common.Times;
 import com.example.aichat.domain.conversation.Conversation;
 import com.example.aichat.domain.conversation.ConversationRepository;
+import com.example.aichat.domain.conversation.KnowledgeSettings;
 import com.example.aichat.domain.conversation.Message;
 import com.example.aichat.domain.conversation.MessageRepository;
 import com.example.aichat.domain.usage.LlmExecution;
@@ -15,6 +18,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,14 +35,17 @@ public class ConversationService {
     private final MessageRepository messages;
     private final LlmExecutionRepository executions;
     private final SystemPromptService systemPrompts;
+    private final ObjectProvider<KnowledgeAugmenter> knowledge;
     private final Clock clock;
 
     public ConversationService(ConversationRepository conversations, MessageRepository messages,
-                               LlmExecutionRepository executions, SystemPromptService systemPrompts, Clock clock) {
+                               LlmExecutionRepository executions, SystemPromptService systemPrompts,
+                               ObjectProvider<KnowledgeAugmenter> knowledge, Clock clock) {
         this.conversations = conversations;
         this.messages = messages;
         this.executions = executions;
         this.systemPrompts = systemPrompts;
+        this.knowledge = knowledge;
         this.clock = clock;
     }
 
@@ -54,10 +61,14 @@ public class ConversationService {
     public ConversationDetails details(UUID userId, UUID conversationId) {
         Conversation conversation = get(userId, conversationId);
         List<Message> history = messages.findByConversationId(conversationId);
-        Map<UUID, LlmExecution> byMessage = executions.findLatestByMessageIds(
-                history.stream().filter(Message::isAssistant).map(Message::id).toList());
+        List<UUID> answers = history.stream().filter(Message::isAssistant).map(Message::id).toList();
+        Map<UUID, LlmExecution> byMessage = executions.findLatestByMessageIds(answers);
+        KnowledgeAugmenter augmenter = knowledge.getIfAvailable();
+        Map<UUID, List<KnowledgeCitation>> citations = augmenter == null || answers.isEmpty() ? Map.of()
+                : augmenter.citations(answers);
         return new ConversationDetails(conversation, history.stream()
-                .map(m -> new ConversationDetails.MessageView(m, byMessage.get(m.id())))
+                .map(m -> new ConversationDetails.MessageView(m, byMessage.get(m.id()),
+                        citations.getOrDefault(m.id(), List.of())))
                 .toList());
     }
 
@@ -92,6 +103,12 @@ public class ConversationService {
             systemPrompts.requireSelectable(systemPromptId);
         }
         return conversations.save(get(userId, conversationId).withSystemPrompt(systemPromptId, Times.now(clock)));
+    }
+
+    /** Turns knowledge-base answers on or off for the conversation and selects the collections to search. */
+    @Transactional
+    public Conversation changeKnowledge(UUID userId, UUID conversationId, KnowledgeSettings settings) {
+        return conversations.save(get(userId, conversationId).withKnowledge(settings, Times.now(clock)));
     }
 
     @Transactional

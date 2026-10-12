@@ -11,6 +11,11 @@ import { Spinner } from './components/ui/Spinner'
 
 const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })))
 const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ default: m.ComparePage })))
+const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then((m) => ({ default: m.KnowledgePage })))
+const KnowledgeSourcePage = lazy(() =>
+  import('./pages/KnowledgeSourcePage').then((m) => ({ default: m.KnowledgeSourcePage })),
+)
+const KnowledgeTestPage = lazy(() => import('./pages/KnowledgeTestPage').then((m) => ({ default: m.KnowledgeTestPage })))
 
 function Lazy({ children }: { children: ReactNode }) {
   return (
@@ -23,6 +28,14 @@ function Lazy({ children }: { children: ReactNode }) {
     >
       {children}
     </Suspense>
+  )
+}
+
+function AdminRoute({ children }: { children: ReactNode }) {
+  return (
+    <RequireAdmin>
+      <Lazy>{children}</Lazy>
+    </RequireAdmin>
   )
 }
 
@@ -50,11 +63,33 @@ const router = createBrowserRouter([
       {
         path: 'admin',
         element: (
-          <RequireAdmin>
-            <Lazy>
-              <AdminPage />
-            </Lazy>
-          </RequireAdmin>
+          <AdminRoute>
+            <AdminPage />
+          </AdminRoute>
+        ),
+      },
+      {
+        path: 'admin/knowledge',
+        element: (
+          <AdminRoute>
+            <KnowledgePage />
+          </AdminRoute>
+        ),
+      },
+      {
+        path: 'admin/knowledge/test',
+        element: (
+          <AdminRoute>
+            <KnowledgeTestPage />
+          </AdminRoute>
+        ),
+      },
+      {
+        path: 'admin/knowledge/:sourceId',
+        element: (
+          <AdminRoute>
+            <KnowledgeSourcePage />
+          </AdminRoute>
         ),
       },
     ],

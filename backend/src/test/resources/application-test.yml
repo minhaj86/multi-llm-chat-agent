@@ -53,6 +53,19 @@ chat:
   title:
     timeout: PT10S
 
+# Knowledge base: deterministic fake embeddings (see FakeEmbeddingProvider), small chunks so that test documents
+# produce several chunks, and a threshold suited to vocabulary-based similarity.
+rag:
+  embedding:
+    provider: fake
+  chunking:
+    chunk-size: 120
+    overlap: 20
+  retrieval:
+    similarity-threshold: 0.15
+  ingestion:
+    concurrency: 2
+
 logging:
   level:
     com.example.aichat: INFO

@@ -223,6 +223,69 @@ check_model_servers() {
   else
     add "Model servers" "OpenAI" info "no OPENAI_API_KEY in .env"
   fi
+  check_embedding_server
+}
+
+# The embedding model of the knowledge base (independent of the chat providers).
+check_embedding_server() {
+  local provider="${RAG_EMBEDDING_PROVIDER:-openai}" model="${RAG_EMBEDDING_MODEL:-text-embedding-3-small}" url models
+  case "$provider" in
+    hashing)
+      add "Model servers" "Embeddings" info "offline hashing embeddings (no model needed)" ;;
+    openai)
+      if [ -n "${RAG_EMBEDDING_API_KEY:-${OPENAI_API_KEY:-}}" ]; then
+        add "Model servers" "Embeddings" ok "OpenAI · $model"
+      else
+        add "Model servers" "Embeddings" warn "OpenAI · no API key: documents cannot be indexed"
+      fi ;;
+    *)
+      url="$(host_url "${RAG_EMBEDDING_BASE_URL:-}")"
+      models="$(list_models "$url" 3)"
+      if printf '%s\n' "$models" | grep -qxF -e "$model" -e "$model:latest"; then
+        add "Model servers" "Embeddings" ok "$url · $model"
+      elif [ -n "$models" ]; then
+        add "Model servers" "Embeddings" warn "$url · model $model not found (pull it on the server)"
+      else
+        add "Model servers" "Embeddings" warn "$url not reachable from this machine"
+      fi ;;
+  esac
+}
+
+check_knowledge() {
+  [ "$CORE_BACKEND" = 1 ] || return 0
+  [ -n "$TOKEN" ] || TOKEN="$(login || true)"
+  if [ -z "$TOKEN" ]; then
+    add "Knowledge base" "Knowledge base" info "no data (set ADMIN_PASSWORD in .env for details)"
+    return 0
+  fi
+  local summary state detail
+  summary="$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$BACKEND_URL/api/admin/knowledge/stats" \
+    | python3 -c '
+import json, sys
+try:
+    s = json.load(sys.stdin)
+    t, e = s["totals"], s["embedding"]
+except Exception:
+    sys.exit(0)
+problems = []
+for count, label in ((t["failed"], "failed"), (s["staleSources"], "need reindex"), (t["processing"], "indexing")):
+    if count:
+        problems.append("%d %s" % (count, label))
+detail = "%d sources · %d chunks · %s/%s" % (t["sources"], t["chunks"], e["provider"], e["model"])
+if problems:
+    detail += " · " + ", ".join(problems)
+if not s["ragEnabled"]:
+    state, detail = "info", "disabled (RAG_ENABLED=false) · " + detail
+else:
+    state = "warn" if t["failed"] or s["staleSources"] else "ok"
+print(state + "\x1f" + detail)
+' 2>/dev/null)"
+  if [ -z "$summary" ]; then
+    add "Knowledge base" "Knowledge base" warn "statistics not available"
+    return 0
+  fi
+  IFS=$'\x1f' read -r state detail <<< "$summary"
+  add "Knowledge base" "Knowledge base" "$state" "$detail"
 }
 
 run_checks() {
@@ -236,7 +299,10 @@ run_checks() {
   fi
   check_endpoints
   check_providers
-  [ "$BRIEF" = 0 ] && check_model_servers
+  if [ "$BRIEF" = 0 ]; then
+    check_model_servers
+    check_knowledge
+  fi
   return 0
 }
 

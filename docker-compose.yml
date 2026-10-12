@@ -11,7 +11,9 @@ name: ai-workspace
 
 services:
   postgres:
-    image: postgres:17
+    # PostgreSQL 17 + pgvector (knowledge-base embeddings). Same Debian base as postgres:17, so existing data
+    # volumes keep their collation versions.
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg17-trixie}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aichat}
       POSTGRES_USER: ${POSTGRES_USER:-aichat}
@@ -59,6 +61,24 @@ services:
       LLAMA_ENGINE: ${LLAMA_ENGINE:-llama-cpp}
       LLAMA_API_KEY: ${LLAMA_API_KEY:-local}
       LLAMA_MODELS: ${LLAMA_MODELS:-}
+      # Knowledge base (RAG). Embeddings are independent of the chat provider (see README "Knowledge base").
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      RAG_EMBEDDING_PROVIDER: ${RAG_EMBEDDING_PROVIDER:-openai}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-text-embedding-3-small}
+      RAG_EMBEDDING_BASE_URL: ${RAG_EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      RAG_EMBEDDING_API_KEY: ${RAG_EMBEDDING_API_KEY:-${OPENAI_API_KEY:-}}
+      RAG_EMBEDDING_DIMENSIONS: ${RAG_EMBEDDING_DIMENSIONS:-0}
+      RAG_EMBEDDING_QUERY_PREFIX: ${RAG_EMBEDDING_QUERY_PREFIX:-}
+      RAG_EMBEDDING_DOCUMENT_PREFIX: ${RAG_EMBEDDING_DOCUMENT_PREFIX:-}
+      RAG_RETRIEVAL_MODE: ${RAG_RETRIEVAL_MODE:-VECTOR}
+      RAG_TOP_K: ${RAG_TOP_K:-8}
+      RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.70}
+      RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-800}
+      RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-150}
+      RAG_CONTEXT_MAX_TOKENS: ${RAG_CONTEXT_MAX_TOKENS:-6000}
+      RAG_MAX_FILE_SIZE: ${RAG_MAX_FILE_SIZE:-50MB}
+      RAG_MAX_REQUEST_SIZE: ${RAG_MAX_REQUEST_SIZE:-55MB}
+      RAG_INGESTION_CONCURRENCY: ${RAG_INGESTION_CONCURRENCY:-2}
       JAVA_OPTS: ${BACKEND_JAVA_OPTS:--XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -78,6 +98,9 @@ services:
   frontend:
     build:
       context: ./frontend
+    environment:
+      # Request body limit for knowledge-base uploads (nginx syntax); keep >= RAG_MAX_REQUEST_SIZE.
+      NGINX_MAX_UPLOAD_SIZE: ${NGINX_MAX_UPLOAD_SIZE:-55m}
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-3080}:8080"
     depends_on:

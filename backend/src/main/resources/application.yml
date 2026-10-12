@@ -34,6 +34,11 @@ spring:
       enabled: true
   jackson:
     default-property-inclusion: always
+  servlet:
+    multipart:
+      # Knowledge-base uploads; keep in sync with rag.ingestion.max-file-size (and nginx client_max_body_size).
+      max-file-size: ${RAG_MAX_FILE_SIZE:50MB}
+      max-request-size: ${RAG_MAX_REQUEST_SIZE:55MB}
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
@@ -45,6 +50,9 @@ server:
   error:
     include-message: never
     include-stacktrace: never
+  tomcat:
+    # Read oversized uploads to the end so the client receives a proper 413 response.
+    max-swallow-size: ${RAG_MAX_REQUEST_SIZE:55MB}
 
 management:
   endpoints:
@@ -86,6 +94,11 @@ logging:
     org.springframework.web.reactive.function.client: WARN
     reactor.netty.http.client: WARN
     org.hibernate.SQL: WARN
+    # Document parsers are chatty about fonts and layout; never log document content.
+    org.apache.pdfbox: ERROR
+    org.apache.fontbox: ERROR
+    org.apache.poi: WARN
+    org.apache.tika: WARN
 
 springdoc:
   swagger-ui:
@@ -290,3 +303,49 @@ llm:
     #   kind: LOCAL
     #   base-url: http://localhost:8003/v1
     #   default-model: mistralai/Mistral-7B-Instruct-v0.3
+
+# --------------------------------------------------------------------------------------------------------------------
+# Knowledge base (RAG). Independent of the chat providers: any chat model can be combined with any embedding model.
+# --------------------------------------------------------------------------------------------------------------------
+rag:
+  enabled: ${RAG_ENABLED:true}
+  chunking:
+    strategy: ${RAG_CHUNKING_STRATEGY:recursive}
+    # Estimated tokens (about 3.5 characters each); changing these requires a reindex.
+    chunk-size: ${RAG_CHUNK_SIZE:800}
+    overlap: ${RAG_CHUNK_OVERLAP:150}
+  retrieval:
+    # VECTOR or HYBRID (vector + PostgreSQL full-text search, merged with reciprocal rank fusion)
+    mode: ${RAG_RETRIEVAL_MODE:VECTOR}
+    top-k: ${RAG_TOP_K:8}
+    # Minimum cosine similarity; depends on the embedding model (see README "Tuning retrieval").
+    similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.70}
+  context:
+    max-tokens: ${RAG_CONTEXT_MAX_TOKENS:6000}
+    max-chunks: ${RAG_CONTEXT_MAX_CHUNKS:8}
+  embedding:
+    # openai | openai-compatible (alias: ollama, vllm, lm-studio, localai, llama-cpp) | hashing (offline)
+    provider: ${RAG_EMBEDDING_PROVIDER:openai}
+    model: ${RAG_EMBEDDING_MODEL:text-embedding-3-small}
+    base-url: ${RAG_EMBEDDING_BASE_URL:https://api.openai.com/v1}
+    api-key: ${RAG_EMBEDDING_API_KEY:${OPENAI_API_KEY:}}
+    # 0 = model default; OpenAI text-embedding-3-* can shorten vectors
+    dimensions: ${RAG_EMBEDDING_DIMENSIONS:0}
+    batch-size: ${RAG_EMBEDDING_BATCH_SIZE:32}
+    timeout: ${RAG_EMBEDDING_TIMEOUT:PT60S}
+    # Instruction prefixes for models that need them (e.g. Qwen3-Embedding, nomic-embed-text); "\n" is a line break.
+    query-prefix: ${RAG_EMBEDDING_QUERY_PREFIX:}
+    document-prefix: ${RAG_EMBEDDING_DOCUMENT_PREFIX:}
+  ingestion:
+    max-file-size: ${RAG_MAX_FILE_SIZE:50MB}
+    max-extracted-characters: ${RAG_MAX_EXTRACTED_CHARACTERS:5000000}
+    max-text-entry-characters: ${RAG_MAX_TEXT_ENTRY_CHARACTERS:200000}
+    concurrency: ${RAG_INGESTION_CONCURRENCY:2}
+    extraction-timeout: ${RAG_EXTRACTION_TIMEOUT:PT5M}
+  reranking:
+    enabled: ${RAG_RERANKING_ENABLED:false}
+    provider: ${RAG_RERANKING_PROVIDER:none}
+  vector:
+    store: pgvector
+    create-index: ${RAG_VECTOR_CREATE_INDEX:true}
+    ef-search: ${RAG_VECTOR_EF_SEARCH:100}

@@ -11,6 +11,7 @@ import java.util.UUID;
  *
  * @param summary         rolling summary of older messages (SUMMARY_PLUS_RECENT context strategy)
  * @param summarizedUntil creation time of the newest message covered by {@code summary}
+ * @param knowledge       whether answers use the knowledge base, and which collections
  */
 public record Conversation(UUID id,
                            UUID userId,
@@ -22,7 +23,8 @@ public record Conversation(UUID id,
                            String summary,
                            Instant summarizedUntil,
                            Instant createdAt,
-                           Instant updatedAt) {
+                           Instant updatedAt,
+                           KnowledgeSettings knowledge) {
 
     public static final int MAX_TITLE_LENGTH = 200;
 
@@ -31,12 +33,13 @@ public record Conversation(UUID id,
         Objects.requireNonNull(userId, "userId");
         title = normalizeTitle(title);
         titleSource = titleSource == null ? TitleSource.DEFAULT : titleSource;
+        knowledge = knowledge == null ? KnowledgeSettings.DISABLED : knowledge;
     }
 
     public static Conversation start(UUID userId, String provisionalTitle, UUID systemPromptId,
                                      String provider, String model, Instant now) {
         return new Conversation(UUID.randomUUID(), userId, provisionalTitle, TitleSource.DEFAULT, systemPromptId,
-                provider, model, null, null, now, now);
+                provider, model, null, null, now, now, KnowledgeSettings.DISABLED);
     }
 
     public boolean isOwnedBy(UUID candidateUserId) {
@@ -45,12 +48,17 @@ public record Conversation(UUID id,
 
     public Conversation rename(String newTitle, Instant now) {
         return new Conversation(id, userId, newTitle, TitleSource.USER, systemPromptId, lastProvider, lastModel,
-                summary, summarizedUntil, createdAt, now);
+                summary, summarizedUntil, createdAt, now, knowledge);
     }
 
     public Conversation withSystemPrompt(UUID promptId, Instant now) {
         return new Conversation(id, userId, title, titleSource, promptId, lastProvider, lastModel,
-                summary, summarizedUntil, createdAt, now);
+                summary, summarizedUntil, createdAt, now, knowledge);
+    }
+
+    public Conversation withKnowledge(KnowledgeSettings settings, Instant now) {
+        return new Conversation(id, userId, title, titleSource, systemPromptId, lastProvider, lastModel,
+                summary, summarizedUntil, createdAt, now, settings);
     }
 
     public boolean hasSummary() {

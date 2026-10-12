@@ -9,7 +9,7 @@ LLM providers. Read this file first, then the guide for the area you are changin
 | React frontend | [frontend/AGENTS.md](frontend/AGENTS.md) |
 | Architecture and diagrams | [docs/architecture.md](docs/architecture.md) |
 | Architecture decisions | [docs/adr/](docs/adr/README.md) |
-| Step-by-step playbooks | [.github/skills/](.github/skills) (`local-stack`, `add-llm-provider`, `run-tests`, `database-migration`) |
+| Step-by-step playbooks | [.github/skills/](.github/skills) (`local-stack`, `add-llm-provider`, `run-tests`, `database-migration`, `knowledge-base`) |
 
 ## Project at a glance
 
@@ -18,13 +18,16 @@ LLM providers. Read this file first, then the guide for the area you are changin
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query, zustand, react-markdown.
 - **LLM providers**: OpenAI (Responses API), plus Qwen and Llama through any OpenAI-compatible server (Ollama, vLLM,
   llama.cpp, LM Studio, LocalAI). A user can switch provider and model per message without restarts.
-- **Runtime**: Docker Compose (`postgres`, `backend`, `frontend`; optional profiles `qwen`, `llama`, `ollama`,
-  `monitoring`). Works with Docker or Podman.
+- **Knowledge base (RAG)**: module `com.example.aichat.rag` — Apache Tika extraction, chunking, embeddings that are
+  independent of the chat provider (OpenAI-compatible or offline hashing), PostgreSQL + pgvector, retrieval with
+  citations, admin UI under `/admin/knowledge`.
+- **Runtime**: Docker Compose (`postgres` with pgvector, `backend`, `frontend`; optional profiles `qwen`, `llama`,
+  `ollama`, `monitoring`). Works with Docker or Podman.
 
 ## Repository map
 
 ```text
-backend/              Spring Boot API: api / application / domain / infrastructure (hexagonal)
+backend/              Spring Boot API: api / application / domain / infrastructure (hexagonal); rag/ = knowledge base
 frontend/             React SPA (served by nginx in Docker, Vite in development)
 scripts/              deploy.sh, run-dev.sh, status.sh, test.sh and lib/common.sh
 docs/                 architecture.md and adr/ (architecture decision records)
@@ -84,13 +87,22 @@ write an ADR first.
 11. **Configuration, not constants.** URLs, model names, timeouts, token limits and prices come from `application.yml`
     with environment overrides. Runtime-editable provider settings (enabled, default model, timeout, temperature,
     max tokens) live in the `provider_settings` table and are changed from the admin UI.
+12. **The knowledge base stays behind ports.** Chat reaches it only through the `KnowledgeAugmenter` port; LLM
+    providers never see how documents are stored; the vector store knows nothing about conversations; pgvector,
+    Tika and embedding-server types stay in `rag/infrastructure`. Embeddings are configured independently of chat
+    providers (`rag.embedding.*`). Every write that changes what can be retrieved (delete, disable, content change,
+    reindex) updates chunks and vectors in the same transaction, so no orphaned or stale vectors remain. Citations
+    are built from retrieved chunks, never parsed from model output, and retrieved text is treated as untrusted
+    data in prompts (ADR 0009, ADR 0010).
 
 ## Testing rules
 
 - Automated tests must never call real OpenAI or real local model servers. LLM servers are simulated with WireMock
-  (`AbstractIntegrationTest`) or mocked with Mockito.
-- Backend integration tests extend `AbstractIntegrationTest`: a PostgreSQL Testcontainer plus WireMock providers
-  `openai`, `qwen`, `llama` and an always-unreachable `offline` provider.
+  (`AbstractIntegrationTest`) or mocked with Mockito; embeddings come from the deterministic `FakeEmbeddingProvider`
+  (`rag.embedding.provider: fake` in `application-test.yml`).
+- Backend integration tests extend `AbstractIntegrationTest`: a PostgreSQL + pgvector Testcontainer
+  (`pgvector/pgvector:pg17-trixie`) plus WireMock providers `openai`, `qwen`, `llama` and an always-unreachable
+  `offline` provider.
 - `scripts/test.sh` configures Testcontainers for Docker or Podman automatically. Running Maven directly with
   Podman needs `DOCKER_HOST` and either `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` (rootful) or
   `TESTCONTAINERS_RYUK_DISABLED=true` (rootless).
@@ -103,8 +115,8 @@ write an ADR first.
   4-space indent, lines up to 120 characters.
 - TypeScript: strict mode, `import type` for type-only imports (`verbatimModuleSyntax`), no enums or parameter
   properties (`erasableSyntaxOnly`), 2-space indent, single quotes, no semicolons.
-- REST errors are RFC 9457 problem details with a machine-readable `code`; SSE events are `start`, `delta`,
-  `reasoning`, `done`, `error` and `title`.
+- REST errors are RFC 9457 problem details with a machine-readable `code`; SSE events are `start`, `citations`,
+  `delta`, `reasoning`, `done`, `error` and `title`.
 - Comments explain why, not what. Keep documentation (README, docs/, AGENTS.md, skills) in sync with behaviour.
 - Shell scripts must run on macOS's bash 3.2: no associative arrays, no `${var,,}`, guard empty arrays with
   `${arr[@]+"${arr[@]}"}`, no GNU-only flags (`sed -i`, `timeout`). Shared helpers belong in `scripts/lib/common.sh`.

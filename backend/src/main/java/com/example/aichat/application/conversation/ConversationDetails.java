@@ -1,5 +1,6 @@
 package com.example.aichat.application.conversation;
 
+import com.example.aichat.application.chat.knowledge.KnowledgeCitation;
 import com.example.aichat.domain.conversation.Conversation;
 import com.example.aichat.domain.conversation.Message;
 import com.example.aichat.domain.usage.LlmExecution;
@@ -10,6 +11,13 @@ import java.util.List;
  */
 public record ConversationDetails(Conversation conversation, List<MessageView> messages) {
 
-    public record MessageView(Message message, LlmExecution execution) {
+    /**
+     * @param citations knowledge-base sources of an assistant answer (empty when it did not use the knowledge base)
+     */
+    public record MessageView(Message message, LlmExecution execution, List<KnowledgeCitation> citations) {
+
+        public MessageView {
+            citations = citations == null ? List.of() : List.copyOf(citations);
+        }
     }
 }

@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { conversationApi } from '../api/client'
 import { ApiError } from '../api/http'
-import type { ConversationDetail } from '../api/types'
+import type { ConversationDetail, KnowledgeSettings } from '../api/types'
 import { toChatItems } from '../components/chat/chatItems'
 import { Composer } from '../components/chat/Composer'
+import { KnowledgeSelector } from '../components/chat/KnowledgeSelector'
 import { MessageList } from '../components/chat/MessageList'
 import { SystemPromptPicker } from '../components/chat/SystemPromptPicker'
 import { WelcomeScreen } from '../components/chat/WelcomeScreen'
@@ -26,6 +27,8 @@ export function ChatPage() {
   const preferredModels = usePreferences((s) => s.models)
   const newChatPromptId = usePreferences((s) => s.systemPromptId)
   const setNewChatPromptId = usePreferences((s) => s.setSystemPromptId)
+  const newChatKnowledge = usePreferences((s) => s.knowledge)
+  const setNewChatKnowledge = usePreferences((s) => s.setKnowledge)
   const [draft, setDraft] = useState<{ text: string; nonce: number }>()
   const { providers, selectProvider, selectModel } = selection
 
@@ -67,6 +70,28 @@ export function ChatPage() {
     [providers, selection.provider, selection.model, preferredModels],
   )
 
+  // Knowledge settings: stored on the conversation once it exists; new chats use the remembered preference.
+  const knowledge: KnowledgeSettings = conversationId
+    ? (detail.data?.conversation.knowledge ?? { enabled: false, collectionIds: [] })
+    : newChatKnowledge
+
+  const changeKnowledge = async (next: KnowledgeSettings) => {
+    if (!conversationId) {
+      setNewChatKnowledge(next)
+      return
+    }
+    const key = ['conversation', conversationId]
+    queryClient.setQueryData<ConversationDetail>(key, (old) =>
+      old ? { ...old, conversation: { ...old.conversation, knowledge: next } } : old,
+    )
+    try {
+      const updated = await conversationApi.changeKnowledge(conversationId, next)
+      queryClient.setQueryData<ConversationDetail>(key, (old) => (old ? { ...old, conversation: updated } : old))
+    } catch {
+      void queryClient.invalidateQueries({ queryKey: key })
+    }
+  }
+
   const handleSend = (text: string) => {
     const target = targetFor()
     if (!target) {
@@ -75,7 +100,7 @@ export function ChatPage() {
     if (exchange && exchange.assistant.status !== 'streaming') {
       dismiss()
     }
-    void send(text, target, newChatPromptId)
+    void send(text, target, newChatPromptId, knowledge)
   }
 
   /** Regenerates the last answer; if the last attempt never reached the server, re-sends the message instead. */
@@ -88,14 +113,14 @@ export function ChatPage() {
       if (exchange && !exchange.assistant.id && exchange.userMessage) {
         const text = exchange.userMessage.content
         dismiss()
-        void send(text, target, newChatPromptId)
+        void send(text, target, newChatPromptId, knowledge)
         return
       }
       if (conversationId) {
         void regenerate(target)
       }
     },
-    [targetFor, exchange, dismiss, send, newChatPromptId, conversationId, regenerate],
+    [targetFor, exchange, dismiss, send, newChatPromptId, knowledge, conversationId, regenerate],
   )
 
   const handleSwitch = useCallback(
@@ -176,11 +201,14 @@ export function ChatPage() {
         draft={draft}
         autoFocusKey={conversationId ?? 'new'}
         toolbar={
-          <SystemPromptPicker
-            value={conversationId ? (detail.data?.conversation.systemPromptId ?? null) : newChatPromptId}
-            onChange={(id) => void changeSystemPrompt(id)}
-            disabled={isStreaming}
-          />
+          <>
+            <SystemPromptPicker
+              value={conversationId ? (detail.data?.conversation.systemPromptId ?? null) : newChatPromptId}
+              onChange={(id) => void changeSystemPrompt(id)}
+              disabled={isStreaming}
+            />
+            <KnowledgeSelector value={knowledge} onChange={(k) => void changeKnowledge(k)} disabled={isStreaming} />
+          </>
         }
       />
     </div>

@@ -3,6 +3,7 @@ package com.example.aichat.application.chat.context;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.aichat.application.chat.ChatProperties;
+import com.example.aichat.application.chat.knowledge.KnowledgeContext;
 import com.example.aichat.domain.conversation.Conversation;
 import com.example.aichat.domain.conversation.Message;
 import com.example.aichat.domain.conversation.TitleSource;
@@ -29,7 +30,7 @@ class ConversationContextManagerTest {
 
     private static Conversation conversation(String summary, Instant summarizedUntil) {
         return new Conversation(CONVERSATION, USER, "t", TitleSource.DEFAULT, null, null, null, summary,
-                summarizedUntil, T0, T0);
+                summarizedUntil, T0, T0, null);
     }
 
     private static Message user(int index, String text) {
@@ -128,6 +129,33 @@ class ConversationContextManagerTest {
         assertThat(context.summaryIncluded()).isFalse();
         assertThat(context.estimatedTokens()).isLessThanOrEqualTo(300);
         assertThat(context.omittedHistoryMessages()).isPositive();
+    }
+
+    @Test
+    void knowledgeAddsRulesToTheSystemMessageAndExcerptsToTheCurrentTurnOnly() {
+        KnowledgeContext knowledge = new KnowledgeContext(true, "Knowledge rules.", "<knowledge>\n[1] fact\n</knowledge>",
+                List.of(), 20, 1, null);
+        PreparedContext context = manager(ContextStrategy.TOKEN_WINDOW, 8000, 20).prepare(new ContextInput("Be brief.",
+                conversation(null, null), history(2), "What is the fact?", knowledge));
+
+        assertThat(context.messages().getFirst().role()).isEqualTo(LlmRole.SYSTEM);
+        assertThat(context.messages().getFirst().content()).isEqualTo("Be brief.\n\nKnowledge rules.");
+        assertThat(context.messages().getLast().content())
+                .isEqualTo("<knowledge>\n[1] fact\n</knowledge>\n\nQuestion:\nWhat is the fact?");
+        assertThat(context.messages().subList(1, context.messages().size() - 1))
+                .noneMatch(m -> m.content().contains("<knowledge>"));
+    }
+
+    @Test
+    void knowledgeTokensReduceTheHistoryBudget() {
+        String excerpts = "<knowledge>\n" + "fact ".repeat(400) + "\n</knowledge>";
+        KnowledgeContext knowledge = new KnowledgeContext(true, "Rules.", excerpts, List.of(), 500, 1, null);
+        ContextInput plain = new ContextInput(null, conversation(null, null), history(20), "Question?");
+        ContextInput augmented = new ContextInput(null, conversation(null, null), history(20), "Question?", knowledge);
+
+        ConversationContextManager manager = manager(ContextStrategy.TOKEN_WINDOW, 1000, 20);
+        assertThat(manager.prepare(augmented).includedHistoryMessages())
+                .isLessThan(manager.prepare(plain).includedHistoryMessages());
     }
 
     @Test

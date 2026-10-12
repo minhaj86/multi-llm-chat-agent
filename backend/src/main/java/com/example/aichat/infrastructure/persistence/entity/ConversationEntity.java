@@ -1,6 +1,7 @@
 package com.example.aichat.infrastructure.persistence.entity;
 
 import com.example.aichat.domain.conversation.Conversation;
+import com.example.aichat.domain.conversation.KnowledgeSettings;
 import com.example.aichat.domain.conversation.TitleSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -9,7 +10,11 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Set;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "conversations")
@@ -38,6 +43,11 @@ public class ConversationEntity {
     private Instant createdAt;
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+    @Column(name = "knowledge_enabled", nullable = false)
+    private boolean knowledgeEnabled;
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "knowledge_collection_ids", nullable = false, columnDefinition = "uuid[]")
+    private UUID[] knowledgeCollectionIds = new UUID[0];
 
     protected ConversationEntity() {
     }
@@ -55,11 +65,14 @@ public class ConversationEntity {
         entity.summarizedUntil = conversation.summarizedUntil();
         entity.createdAt = conversation.createdAt();
         entity.updatedAt = conversation.updatedAt();
+        entity.knowledgeEnabled = conversation.knowledge().enabled();
+        entity.knowledgeCollectionIds = conversation.knowledge().collectionIds().toArray(UUID[]::new);
         return entity;
     }
 
     public Conversation toDomain() {
         return new Conversation(id, userId, title, titleSource, systemPromptId, lastProvider, lastModel, summary,
-                summarizedUntil, createdAt, updatedAt);
+                summarizedUntil, createdAt, updatedAt, new KnowledgeSettings(knowledgeEnabled,
+                knowledgeCollectionIds == null ? Set.of() : Set.copyOf(Arrays.asList(knowledgeCollectionIds))));
     }
 }

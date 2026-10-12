@@ -22,6 +22,7 @@
         <resilience4j.version>2.4.0</resilience4j.version>
         <springdoc.version>2.8.17</springdoc.version>
         <wiremock.version>3.13.2</wiremock.version>
+        <tika.version>4.1.0</tika.version>
         <!-- Base JVM arguments for tests; coverage agents may prepend to it -->
         <argLine/>
     </properties>
@@ -89,6 +90,28 @@
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- RAG: text extraction (PDF, DOCX, HTML) with Apache Tika; plain formats are parsed directly -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parser-pdf-module</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parser-microsoft-module</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parser-html-module</artifactId>
+            <version>${tika.version}</version>
         </dependency>
 
         <!-- Observability -->

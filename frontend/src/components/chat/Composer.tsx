@@ -86,7 +86,7 @@ export function Composer({
           className="block max-h-60 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed outline-none placeholder:text-zinc-400"
         />
         <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5">
-          <div className="flex min-w-0 items-center gap-2">{toolbar}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">{toolbar}</div>
           <div className="flex items-center gap-2">
             {text.length > maxLength * 0.8 && (
               <span className={cn('text-xs tabular-nums', tooLong ? 'text-red-500' : 'text-zinc-400')}>

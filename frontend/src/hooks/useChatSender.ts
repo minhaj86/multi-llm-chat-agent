@@ -3,7 +3,7 @@ import { useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { chatApi } from '../api/client'
 import { ApiError, errorMessage } from '../api/http'
-import type { ChatStreamEvent, Conversation, ConversationDetail } from '../api/types'
+import type { ChatStreamEvent, Conversation, ConversationDetail, KnowledgeSettings } from '../api/types'
 import { newId } from '../lib/format'
 import { createTokenBuffer, NEW_CHAT_SLOT, type PendingExchange, useChatStreamStore } from '../store/chatStream'
 
@@ -27,7 +27,13 @@ export function useChatSender(conversationId: string | null) {
   const isStreaming = exchange?.assistant.status === 'streaming'
 
   const run = useCallback(
-    async (kind: 'send' | 'regenerate', target: Target, text: string | null, systemPromptId: string | null) => {
+    async (
+      kind: 'send' | 'regenerate',
+      target: Target,
+      text: string | null,
+      systemPromptId: string | null,
+      knowledge: KnowledgeSettings | null,
+    ) => {
       const store = useChatStreamStore.getState()
       const key = newId()
       let currentSlot = slot
@@ -50,6 +56,8 @@ export function useChatSender(conversationId: string | null) {
           error: null,
           metrics: null,
           startedAt: Date.now(),
+          citations: null,
+          knowledgeNotice: null,
         },
       }
       store.begin(slot, pending)
@@ -83,6 +91,7 @@ export function useChatSender(conversationId: string | null) {
                   lastModel: data.model,
                   createdAt: now,
                   updatedAt: now,
+                  knowledge: knowledge ?? undefined,
                 },
                 messages: [],
               })
@@ -103,6 +112,12 @@ export function useChatSender(conversationId: string | null) {
             }
             break
           }
+          case 'citations':
+            update((e) => ({
+              ...e,
+              assistant: { ...e.assistant, citations: event.data.citations, knowledgeNotice: event.data.notice },
+            }))
+            break
           case 'delta':
             buffer.text(event.data.text)
             break
@@ -143,6 +158,7 @@ export function useChatSender(conversationId: string | null) {
               provider: target.providerId,
               model: target.model,
               systemPromptId: conversationId ? null : systemPromptId,
+              knowledge,
             },
             onEvent,
             controller.signal,
@@ -206,11 +222,12 @@ export function useChatSender(conversationId: string | null) {
   )
 
   const send = useCallback(
-    (text: string, target: Target, systemPromptId: string | null) => run('send', target, text, systemPromptId),
+    (text: string, target: Target, systemPromptId: string | null, knowledge: KnowledgeSettings | null = null) =>
+      run('send', target, text, systemPromptId, knowledge),
     [run],
   )
 
-  const regenerate = useCallback((target: Target) => run('regenerate', target, null, null), [run])
+  const regenerate = useCallback((target: Target) => run('regenerate', target, null, null, null), [run])
 
   /** Stops generation: asks the server to cancel (keeping the partial answer), then closes the stream. */
   const stop = useCallback(async () => {

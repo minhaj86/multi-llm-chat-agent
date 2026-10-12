@@ -14,6 +14,8 @@ consequences and alternatives considered.
 | [0006](0006-summary-plus-recent-context-strategy.md) | `SUMMARY_PLUS_RECENT` as the default context strategy | Accepted |
 | [0007](0007-retry-only-when-safe.md) | Retry LLM calls only when safe | Accepted |
 | [0008](0008-stateless-jwt-with-live-account-checks.md) | Stateless JWT with live account checks | Accepted |
+| [0009](0009-rag-module-with-pgvector.md) | Knowledge base as a RAG module behind ports, with PostgreSQL + pgvector | Accepted |
+| [0010](0010-asynchronous-ingestion-and-index-consistency.md) | Asynchronous ingestion with row-locked, transactional index updates | Accepted |
 
 ## Writing a new ADR
 

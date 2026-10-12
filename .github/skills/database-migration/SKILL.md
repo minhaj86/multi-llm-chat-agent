@@ -6,7 +6,9 @@ description: Change the PostgreSQL schema or seed data of AI Workspace safely wi
 # Database migration
 
 Flyway owns the schema. Hibernate only validates it (`spring.jpa.hibernate.ddl-auto: validate`), so the application
-refuses to start when entities and tables disagree.
+refuses to start when entities and tables disagree. The knowledge-base tables (`knowledge_*`, `rag_*`) are not JPA
+entities: they are read and written with `JdbcTemplate` in `rag/infrastructure/persistence`, so schema changes there
+are only caught by the integration tests — update the `Jdbc*` repositories and run `KnowledgeBaseIntegrationTest`.
 
 ## Rules
 

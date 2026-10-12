@@ -45,17 +45,21 @@ export function authHeaders(extra?: HeadersInit): Headers {
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   json?: unknown
+  /** Multipart body (file uploads); the browser sets the content type with its boundary. */
+  form?: FormData
 }
 
 /** JSON request helper: attaches the bearer token and converts error responses into {@link ApiError}. */
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { json, headers: initHeaders, ...init } = options
+  const { json, form, headers: initHeaders, ...init } = options
   const headers = authHeaders(initHeaders)
   headers.set('Accept', 'application/json, application/problem+json')
   let body: BodyInit | undefined
   if (json !== undefined) {
     headers.set('Content-Type', 'application/json')
     body = JSON.stringify(json)
+  } else if (form !== undefined) {
+    body = form
   }
   let response: Response
   try {

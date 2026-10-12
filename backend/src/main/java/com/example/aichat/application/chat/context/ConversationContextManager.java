@@ -1,6 +1,7 @@
 package com.example.aichat.application.chat.context;
 
 import com.example.aichat.application.chat.ChatProperties;
+import com.example.aichat.application.chat.knowledge.KnowledgeContext;
 import com.example.aichat.common.Texts;
 import com.example.aichat.domain.conversation.Message;
 import com.example.aichat.domain.conversation.MessageRole;
@@ -23,6 +24,9 @@ import org.springframework.stereotype.Component;
  *       budget while the newest messages are always retained.</li>
  *   <li>Roles are normalised to strictly alternate (consecutive messages of the same role are merged and the
  *       history never starts with an assistant message) because some chat templates reject anything else.</li>
+ *   <li>Knowledge-base context (RAG), when present, adds trusted usage rules to the system message and places
+ *       the delimited, untrusted excerpts before the question in the current user turn; its tokens reduce the
+ *       history budget. Stored messages are never modified.</li>
  * </ul>
  */
 @Component
@@ -53,7 +57,8 @@ public class ConversationContextManager {
 
     public PreparedContext prepare(ContextInput input, ContextStrategy strategy) {
         List<Message> eligible = input.history().stream().filter(Message::isContextEligible).toList();
-        LlmMessage current = LlmMessage.user(input.userMessage());
+        KnowledgeContext knowledge = input.knowledge();
+        LlmMessage current = LlmMessage.user(knowledge.augment(input.userMessage()));
 
         boolean useSummary = strategy == ContextStrategy.SUMMARY_PLUS_RECENT
                 && input.conversation() != null
@@ -62,7 +67,8 @@ public class ConversationContextManager {
                 ? eligible.stream().filter(m -> m.createdAt().isAfter(input.conversation().summarizedUntil())).toList()
                 : eligible;
 
-        LlmMessage system = systemMessage(input.systemPrompt(), useSummary ? input.conversation().summary() : null);
+        LlmMessage system = systemMessage(input.systemPrompt(), knowledge.hasKnowledge() ? knowledge.instructions() : null,
+                useSummary ? input.conversation().summary() : null);
         int fixedTokens = tokenEstimator.estimate(current) + (system == null ? 0 : tokenEstimator.estimate(system));
         int historyBudget = Math.max(0, properties.maxContextTokens() - fixedTokens);
 
@@ -93,10 +99,16 @@ public class ConversationContextManager {
                 .sum();
     }
 
-    private LlmMessage systemMessage(String systemPrompt, String summary) {
+    private LlmMessage systemMessage(String systemPrompt, String knowledgeInstructions, String summary) {
         StringBuilder text = new StringBuilder();
         if (Texts.hasText(systemPrompt)) {
             text.append(systemPrompt.strip());
+        }
+        if (Texts.hasText(knowledgeInstructions)) {
+            if (!text.isEmpty()) {
+                text.append("\n\n");
+            }
+            text.append(knowledgeInstructions.strip());
         }
         if (Texts.hasText(summary)) {
             if (!text.isEmpty()) {

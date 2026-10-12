@@ -27,7 +27,8 @@ Options (down)
   --volumes        Also delete the database volume
 
 On the first run a .env file is created from .env.example with generated secrets. If Ollama runs on this
-machine, Qwen and Llama are pointed at it automatically.
+machine, Qwen and Llama are pointed at it automatically. The knowledge base uses an embedding model served by Ollama
+if there is one, and offline hashing embeddings otherwise.
 EOF
 }
 
@@ -74,7 +75,7 @@ ALL_PROFILE_FLAGS=()
 for profile in "${ALL_PROFILES[@]}"; do ALL_PROFILE_FLAGS+=(--profile "$profile"); done
 
 ensure_env_file() {
-  local env_file="$ROOT_DIR/.env" models qwen llama
+  local env_file="$ROOT_DIR/.env" models chat_models embedding qwen llama
   [ -f "$env_file" ] && return 0
   require_command openssl "used to generate secrets"
   info "Creating .env from .env.example"
@@ -85,9 +86,11 @@ ensure_env_file() {
   set_env_value "$env_file" ADMIN_PASSWORD "Admin-$(random_password 6)"
 
   models="$(list_models http://127.0.0.1:11434/v1)"
+  chat_models="$(printf '%s\n' "$models" | grep -viE 'embed|bge|minilm' || true)"
+  embedding="$(printf '%s\n' "$models" | grep -iE 'embed|bge|minilm' | head -n 1 || true)"
   if [ -n "$models" ]; then
-    qwen="$(printf '%s\n' "$models" | grep -i '^qwen' | head -n 1 || true)"
-    llama="$(printf '%s\n' "$models" | grep -i 'llama' | head -n 1 || true)"
+    qwen="$(printf '%s\n' "$chat_models" | grep -i '^qwen' | head -n 1 || true)"
+    llama="$(printf '%s\n' "$chat_models" | grep -i 'llama' | head -n 1 || true)"
     if [ -n "$qwen" ]; then
       set_env_value "$env_file" QWEN_BASE_URL "http://host.docker.internal:11434/v1"
       set_env_value "$env_file" QWEN_MODEL "$qwen"
@@ -102,6 +105,19 @@ ensure_env_file() {
     fi
     success "Found Ollama on this machine (Qwen: ${qwen:-none}, Llama: ${llama:-none})"
   fi
+
+  # Knowledge base: a local embedding model if Ollama serves one, otherwise offline hashing embeddings, so that
+  # uploads work without an OpenAI key. Switch with RAG_EMBEDDING_* and "Reindex all" in the admin panel.
+  if [ -n "$embedding" ]; then
+    set_env_value "$env_file" RAG_EMBEDDING_PROVIDER "ollama"
+    set_env_value "$env_file" RAG_EMBEDDING_BASE_URL "http://host.docker.internal:11434/v1"
+    set_env_value "$env_file" RAG_EMBEDDING_MODEL "$embedding"
+    success "Knowledge base embeddings: $embedding (Ollama). Calibrate RAG_SIMILARITY_THRESHOLD with Admin > Knowledge base > Test retrieval"
+  else
+    set_env_value "$env_file" RAG_EMBEDDING_PROVIDER "hashing"
+    set_env_value "$env_file" RAG_SIMILARITY_THRESHOLD "0.12"
+    info "Knowledge base embeddings: offline hashing (configure RAG_EMBEDDING_* for OpenAI or a local embedding model)"
+  fi
   success ".env created. Administrator: ${ADMIN_USERNAME:-admin}, password: see ADMIN_PASSWORD in .env"
 }
 
@@ -114,6 +130,11 @@ validate_env() {
     die "JWT_SECRET must be at least 32 characters (generate one with: openssl rand -base64 48)"
   fi
   [ -n "${OPENAI_API_KEY:-}" ] || warn "OPENAI_API_KEY is not set: OpenAI will be shown as offline"
+  case "${RAG_EMBEDDING_PROVIDER:-openai}" in
+    openai)
+      [ -n "${RAG_EMBEDDING_API_KEY:-${OPENAI_API_KEY:-}}" ] \
+        || warn "Knowledge base: OpenAI embeddings need OPENAI_API_KEY (or set RAG_EMBEDDING_PROVIDER, e.g. hashing)" ;;
+  esac
   [ -n "${ADMIN_PASSWORD:-}" ] || warn "ADMIN_PASSWORD is not set: the first user who registers becomes administrator"
   return 0
 }

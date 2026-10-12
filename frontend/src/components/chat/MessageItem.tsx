@@ -7,6 +7,7 @@ import { Markdown } from '../markdown/Markdown'
 import { Badge } from '../ui/Form'
 import { TypingIndicator } from '../ui/Spinner'
 import type { ChatItem } from './chatItems'
+import { Citations } from './Citations'
 import { ErrorNotice } from './ErrorNotice'
 import { ReasoningBlock } from './ReasoningBlock'
 
@@ -98,6 +99,8 @@ function AssistantMessage({
         ) : item.status === 'complete' ? (
           <p className="text-sm italic text-zinc-500">The model returned an empty answer.</p>
         ) : null}
+
+        <Citations citations={item.citations} notice={item.knowledgeNotice} />
 
         {item.status === 'error' && (
           <div className="mt-2">

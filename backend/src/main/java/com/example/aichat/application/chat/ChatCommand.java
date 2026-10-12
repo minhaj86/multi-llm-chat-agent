@@ -1,5 +1,6 @@
 package com.example.aichat.application.chat;
 
+import com.example.aichat.domain.conversation.KnowledgeSettings;
 import java.util.UUID;
 
 /**
@@ -16,5 +17,12 @@ public record ChatCommand(UUID userId,
                           String provider,
                           String model,
                           UUID systemPromptId,
-                          String correlationId) {
+                          String correlationId,
+                          KnowledgeSettings knowledge) {
+
+    /** Without a knowledge selection: the conversation keeps its current knowledge settings. */
+    public ChatCommand(UUID userId, UUID conversationId, String message, String provider, String model,
+                       UUID systemPromptId, String correlationId) {
+        this(userId, conversationId, message, provider, model, systemPromptId, correlationId, null);
+    }
 }

@@ -2,16 +2,18 @@
 
 A production-grade, full-stack AI chat application with **switchable LLM providers**. Chat with **OpenAI** (cloud),
 **Qwen** and **Llama** (local, OpenAI-compatible servers such as Ollama, vLLM or llama.cpp) — and switch provider or
-model at any time, even in the middle of a conversation, without restarting anything.
+model at any time, even in the middle of a conversation, without restarting anything. Answers can be grounded in a
+curated **knowledge base** (RAG over PostgreSQL + pgvector) with citations to the exact source passages.
 
 - **Backend:** Java 21 · Spring Boot 3.5 · Spring MVC + WebClient · Spring Security (JWT) · JPA/PostgreSQL · Flyway ·
-  Resilience4j · Micrometer/Prometheus
+  pgvector · Apache Tika · Resilience4j · Micrometer/Prometheus
 - **Frontend:** React 19 · TypeScript · Vite · Tailwind CSS · TanStack Query · Zustand
-- **Infrastructure:** Docker Compose (frontend + backend + PostgreSQL, optional GPU model servers, Prometheus)
+- **Infrastructure:** Docker Compose (frontend + backend + PostgreSQL/pgvector, optional GPU model servers, Prometheus)
 
 [Features](#features) · [Quick start](#quick-start-docker-compose) · [Scripts](#scripts) ·
-[Architecture](#architecture) · [Configuration](#configuration) · [API](#api) ·
-[Adding a provider](#adding-a-new-provider) · [Documentation](#documentation) · [Troubleshooting](#troubleshooting)
+[Architecture](#architecture) · [Configuration](#configuration) · [Knowledge base (RAG)](#knowledge-base-rag) ·
+[API](#api) · [Adding a provider](#adding-a-new-provider) · [Documentation](#documentation) ·
+[Troubleshooting](#troubleshooting)
 
 ---
 
@@ -34,6 +36,16 @@ model at any time, even in the middle of a conversation, without restarting anyt
 - Friendly errors with one-click alternatives: *“Qwen Local is currently unavailable. Switch to: [OpenAI] [Llama Local]”*
 - **Compare mode**: one prompt, up to 4 providers side by side with latency, input/output tokens and cost (`Local` for
   local models)
+
+**Knowledge base (RAG)** — [details](#knowledge-base-rag)
+- Upload PDF, DOCX, HTML, Markdown, text, CSV and JSON, or write knowledge as text; organise it in collections
+- Asynchronous indexing (extract → chunk → embed → pgvector) with visible progress, duplicate detection (SHA-256),
+  versions, enable/disable without deleting, reindex, delete without orphaned vectors
+- Admin panel to browse everything that is stored: extracted text, every chunk, metadata, indexing details, statistics
+- RAG test console: test retrieval without an LLM, or generate a test answer and inspect the exact prompt
+- *Knowledge* toggle per conversation (all or selected collections) with **citations built from the retrieved chunks**
+- Embeddings independent of the chat provider (OpenAI, any OpenAI-compatible server such as Ollama, or offline
+  hashing); vector store, reranker and extractors are replaceable adapters
 
 **Platform**
 - Registration, login, JWT, BCrypt, per-user data isolation, account lockout, CORS, rate limiting
@@ -314,6 +326,8 @@ Vendor failures are mapped to `LlmProviderUnavailableException`, `LlmAuthenticat
 | `llm_executions`    | one row per LLM call: provider, model, kind, purpose, tokens, latency, TTFT, cost, status   |
 | `system_prompts`    | prompt profiles                                                                              |
 | `provider_settings` | administrator overrides (enabled, default model, timeout, temperature, max tokens)          |
+| `knowledge_*`       | knowledge base: collections, sources, original files, extracted text, chunks, pgvector vectors — see [RAG data model](#rag-data-model) |
+| `rag_executions`, `rag_retrieved_chunks` | every retrieval (query, model, timings, context size) and the chunks it returned, with ranks, scores and citation numbers |
 
 ---
 
@@ -381,6 +395,9 @@ llm:
 | `CHAT_RATE_LIMIT` / `COMPARE_RATE_LIMIT` | `30` / `10` | requests per minute and user |
 | `SERVER_PORT` | `8088` | backend port (8080 inside Docker) |
 | `LOG_FORMAT` (compose) | `ecs` | JSON log format (`ecs`, `logstash`; empty = plain text) |
+| `RAG_*` | | knowledge base: embeddings, chunking, retrieval, limits — see [Embedding configuration](#embedding-configuration) and [RAG configuration](#rag-configuration) |
+| `POSTGRES_IMAGE` (compose) | `pgvector/pgvector:pg17-trixie` | PostgreSQL image; must provide the pgvector extension |
+| `NGINX_MAX_UPLOAD_SIZE` (compose) | `55m` | request body limit of the bundled nginx for document uploads |
 
 Docker Compose host ports: `FRONTEND_PORT` (3080), `BACKEND_PORT` (8088), `POSTGRES_PORT` (5434).
 
@@ -398,6 +415,366 @@ responses are not stored by OpenAI (`store: false`). Reasoning models (prefixes 
 Administrators can change *enabled*, *default model*, *timeout*, *temperature* and *max tokens* per provider in
 **Admin → Providers**; overrides are stored in `provider_settings` and apply to the next request. Endpoints and
 credentials stay in configuration (environment) and are only ever shown masked.
+
+---
+
+## Knowledge base (RAG)
+
+Administrators curate a knowledge base — uploaded documents and manually written text, organised in collections — and
+chat answers can use it, with **citations created from the chunks that were actually retrieved**. The subsystem is a
+separate module (`com.example.aichat.rag`) built from ports and adapters: chat logic does not know how knowledge is
+stored, embeddings are configured independently of the chat providers (Qwen can answer with knowledge embedded by
+OpenAI, and vice versa), and pgvector is just one implementation of the `VectorStore` port.
+
+```text
+                    Admin
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+       Upload                  Add Text
+          │                       │
+          └───────────┬───────────┘
+                      ↓
+                 Extraction
+                      ↓
+                  Chunking
+                      ↓
+                 Embeddings
+                      ↓
+                  pgvector
+                      │
+                      │
+User Question         │
+      │               │
+      ↓               │
+  RAG Retriever ──────┘
+      ↓
+   Reranker
+      ↓
+Context Builder
+      ↓
+ Model Router
+      ↓
+┌─────┼───────────┐
+│     │           │
+OpenAI Qwen      Llama
+│     │           │
+└─────┼───────────┘
+      ↓
+Answer + Sources
+```
+
+### RAG architecture
+
+Ingestion and question answering are separate flows that only share the stored chunks and vectors:
+
+| Flow | Path |
+|------|------|
+| Ingestion (background) | `DocumentIngestionService` / `TextIngestionService` → `KnowledgeSourceWriter` (checksum, duplicates, storage) → `IngestionQueue` → `IngestionPipeline`: `DocumentExtractor` → `ChunkingStrategy` → `EmbeddingProvider` → `VectorStore` |
+| Question answering | `ChatService` → `KnowledgeAugmenter` (port owned by chat) → `RagChatAugmenter` → `RetrievalService` (`EmbeddingProvider`, `VectorStore`, `KeywordSearcher`) → `RerankingService` → `RagContextBuilder` → `LlmProvider` |
+
+| Port | Responsibility | Implementations |
+|------|----------------|-----------------|
+| `DocumentExtractor` | bytes → text with pages and sections | PDF, DOCX, HTML, Markdown, text, CSV and JSON extractors (Apache Tika 4 where it helps) |
+| `ChunkingStrategy` | text → chunks with offsets, page and section | `RecursiveTextChunkingStrategy` |
+| `EmbeddingProvider` | texts → vectors | `OpenAiCompatibleEmbeddingProvider` (OpenAI, Ollama, vLLM, LM Studio, LocalAI, llama.cpp), `HashingEmbeddingProvider` (offline); tests use `FakeEmbeddingProvider` |
+| `VectorStore` | store, search and delete vectors | `PgVectorStore` |
+| `KeywordSearcher` | full-text candidates for hybrid retrieval | `PostgresKeywordSearcher` |
+| `RerankingService` | reorder candidates | `PassThroughRerankingService` |
+| `RagContextBuilder` | chunks → prompt context and citations within a token budget | `DefaultRagContextBuilder` |
+| `KnowledgeAccessPolicy` | collections a user may use and cite | `EnabledCollectionsAccessPolicy` (every enabled collection) |
+| `KnowledgeAugmenter` (chat port) | knowledge for one chat answer | `RagChatAugmenter` |
+
+Invariants: LLM providers never see how documents are stored, the vector store knows nothing about conversations, and
+`ChatService` never embeds text or queries vectors itself. Persistence uses `JdbcTemplate` (pgvector, arrays, JSONB,
+batches); retrieval filters are denormalised onto the vector rows so that one indexed query applies them.
+
+<a id="rag-data-model"></a>
+
+| Table | Content |
+|-------|---------|
+| `knowledge_collections` | name, description, enabled; a default collection ("General") always exists |
+| `knowledge_sources` | type (`FILE`, `TEXT`, `URL` reserved), title, file name, MIME type, source URL, collection, status, enabled, tags, SHA-256 checksum, size, version and parent version, creator, timestamps, embedding provider/model, chunk count, error, statistics of the last indexing run |
+| `knowledge_source_files` / `knowledge_source_contents` | original bytes / extracted text with page and section structure |
+| `knowledge_chunks` | chunk number, text, token count, character range, page, section, metadata, full-text vector |
+| `knowledge_vectors` | one embedding per chunk (`vector`), model, dimensions and the filter fields (collection, enabled, tags) |
+| `rag_executions`, `rag_retrieved_chunks` | retrieval log for analysis and persisted citations |
+
+Everything below a source is deleted with it (`ON DELETE CASCADE`); citations keep the source title.
+
+### pgvector setup
+
+- Docker Compose runs `pgvector/pgvector:pg17-trixie`: PostgreSQL 17 with pgvector on the same Debian base as
+  `postgres:17`, so an existing database volume keeps working without collation changes. Override with
+  `POSTGRES_IMAGE`.
+- Flyway migration `V3__knowledge_base.sql` runs `CREATE EXTENSION IF NOT EXISTS vector` and creates the tables. On a
+  managed database (RDS, Azure Database for PostgreSQL, Cloud SQL, …) enable pgvector there first, or run the
+  migration with a role that may create extensions.
+- The `embedding` column has no fixed size, so vectors of different models can coexist while reindexing; every
+  query is limited to the active model. On first use of a dimension (up to 2000) an HNSW cosine index on
+  `embedding::vector(n)` is created, and searches use `hnsw.iterative_scan` so that filters do not starve results.
+- Check: `docker compose exec postgres psql -U aichat -c "select extversion from pg_extension where extname='vector'"`.
+
+### Embedding configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RAG_EMBEDDING_PROVIDER` | `openai` | `openai`, `openai-compatible` (aliases `ollama`, `vllm`, `lm-studio`, `localai`, `llama-cpp`) or `hashing` |
+| `RAG_EMBEDDING_MODEL` | `text-embedding-3-small` | embedding model on that server |
+| `RAG_EMBEDDING_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL (including `/v1`) |
+| `RAG_EMBEDDING_API_KEY` | `OPENAI_API_KEY` | bearer token |
+| `RAG_EMBEDDING_DIMENSIONS` | `0` | `0` = model default; OpenAI `text-embedding-3-*` can return shorter vectors |
+| `RAG_EMBEDDING_QUERY_PREFIX` / `RAG_EMBEDDING_DOCUMENT_PREFIX` | – | instruction prefixes for models that expect them (`\n` = line break) |
+| `RAG_EMBEDDING_BATCH_SIZE` / `RAG_EMBEDDING_TIMEOUT` | `32` / `PT60S` | batch size and timeout; transient errors are retried |
+
+```bash
+# OpenAI (default; uses OPENAI_API_KEY)
+RAG_EMBEDDING_PROVIDER=openai
+RAG_EMBEDDING_MODEL=text-embedding-3-small
+
+# Local Qwen3 embeddings with Ollama on the host (first: ollama pull qwen3-embedding:0.6b)
+RAG_EMBEDDING_PROVIDER=ollama
+RAG_EMBEDDING_BASE_URL=http://host.docker.internal:11434/v1
+RAG_EMBEDDING_MODEL=qwen3-embedding:0.6b
+RAG_EMBEDDING_QUERY_PREFIX=Instruct: Given a question, retrieve passages that answer it\nQuery:
+
+# Offline, without any model: word hashing (keyword-like matching, no semantics) for demos and air-gapped setups
+RAG_EMBEDDING_PROVIDER=hashing
+RAG_SIMILARITY_THRESHOLD=0.12
+```
+
+Each source records the embedding model that indexed it, and retrieval only compares vectors of the active model.
+After changing the model, affected sources are marked *needs reindex* and stay unsearchable until **Reindex all**
+(Admin → Knowledge base) has embedded them again.
+
+### Document ingestion
+
+- **Upload** a file (`POST /api/admin/knowledge/files`, multipart) or **add text** (`POST /api/admin/knowledge/text`).
+  Manual text is stored like an uploaded Markdown file, so it runs through the same pipeline (headings become
+  sections) and can be edited later.
+- The request returns at once (`202 {"sourceId": "…", "status": "UPLOADED"}`); a bounded background pool
+  (`RAG_INGESTION_CONCURRENCY`) does the work. Status: `UPLOADED → EXTRACTING → EXTRACTED → CHUNKING → EMBEDDING →
+  INDEXED`, or `FAILED` with the reason; `DELETING` while being removed. The admin UI polls
+  `GET /api/admin/knowledge/{id}/status` while anything is in progress.
+- **Duplicates:** the SHA-256 checksum is compared with the stored sources. A duplicate is answered with
+  `409 DUPLICATE_DOCUMENT` and the existing source ("This document already exists in the knowledge base"); upload again
+  with `duplicateStrategy=NEW_VERSION` (new source with version + 1, previous version disabled) or `REPLACE` (the
+  existing source is reindexed in place). No duplicate embeddings are created.
+- **Replace file** (`replaceSourceId`) keeps the title, collection, tags and URL unless new values are sent; the old
+  chunks and vectors are removed immediately.
+- **Validation:** the file name is reduced to its last path segment and stripped of control and reserved characters;
+  only listed extensions are accepted and the real content is sniffed (a renamed binary is rejected); size limits
+  (`RAG_MAX_FILE_SIZE`, `RAG_MAX_REQUEST_SIZE`, nginx `NGINX_MAX_UPLOAD_SIZE`, `413 PAYLOAD_TOO_LARGE`); a limit on the
+  extracted text (`RAG_MAX_EXTRACTED_CHARACTERS`, protects against ZIP and decompression bombs) and an extraction
+  timeout (`RAG_EXTRACTION_TIMEOUT`). HTML is reduced to visible text and extracted text is never rendered as HTML.
+  Source URLs must be `http(s)`.
+- **Recovery:** after a restart, interrupted indexing runs are queued again and interrupted deletions are completed.
+
+### Supported file types
+
+| Type | Extensions | Extraction |
+|------|------------|------------|
+| PDF | `.pdf` | text per page; page numbers are kept for citations. Encrypted PDFs fail with a clear reason |
+| Word | `.docx` | paragraphs and tables; headings become sections |
+| HTML | `.html`, `.htm`, `.xhtml` | visible text only (scripts and styles are dropped); headings become sections |
+| Markdown | `.md`, `.markdown`, `.mdown` | `#` headings become sections |
+| Text | `.txt`, `.text`, `.log` | as is (encoding detected) |
+| CSV | `.csv` | one line per row as `column: value` pairs (delimiter detected) |
+| JSON | `.json` | flattened `path: value` lines; top-level keys become sections |
+
+OCR is not performed: scanned PDFs without a text layer fail with "No text could be extracted". A new format needs a
+`DocumentExtractor` bean (`supports(contentType, filename)`, `extract(...)`) and an entry in `DocumentType` (extensions
+and accepted content types).
+
+### Chunking
+
+`RecursiveTextChunkingStrategy` splits at the largest natural boundary that keeps a chunk within the size — paragraphs,
+then lines, sentences, clauses and words — and starts each chunk with an overlap from the previous one. Sizes are
+estimated tokens (about 3.5 characters per token):
+
+```yaml
+rag:
+  chunking:
+    strategy: recursive   # RAG_CHUNKING_STRATEGY
+    chunk-size: 800       # RAG_CHUNK_SIZE
+    overlap: 150          # RAG_CHUNK_OVERLAP
+```
+
+Each chunk stores its number, character start and end, page (and last page when it spans several), section title and
+token count, which is what citations and the chunk viewer show. New settings apply to sources indexed afterwards;
+reindex existing sources to re-chunk them.
+
+### Retrieval
+
+```text
+question ─► embed (query prefix) ─► vector search (cosine, filters) ───────┐
+          └──────────────────────► keyword search (HYBRID mode only) ──────┴─► merge (RRF) ─► threshold ─► rerank ─► top K
+```
+
+- Only **enabled, indexed** sources in **enabled** collections that the user may read are searched; requests can be
+  narrowed by collections, tags and source ids.
+- `RAG_SIMILARITY_THRESHOLD` (default `0.70`) drops weak vector matches — no context is better than wrong context. The
+  right value depends on the embedding model. With the offline hashing embeddings, relevant chunks measured 0.15–0.45
+  and unrelated ones stayed below 0.11 (hence `0.12`); semantic models have their own ranges. Run the **test
+  console** with threshold 0 to see the scores of relevant and unrelated chunks and pick a value in between.
+- `RAG_RETRIEVAL_MODE=HYBRID` adds PostgreSQL full-text search (`simple` configuration, language-neutral) and merges
+  both result lists with reciprocal rank fusion — useful for exact terms, codes and names.
+- `RAG_TOP_K` (8) results are returned from a larger candidate pool, so a reranker has room to reorder.
+- Every retrieval is recorded in `rag_executions` / `rag_retrieved_chunks`: query, embedding provider and model,
+  collections, retrieved chunk ids, ranks, similarity and rerank scores, embedding and search durations, context size.
+
+### RAG chat
+
+The **Knowledge** button in the composer enables the knowledge base for a conversation, and the collection picker
+limits it to selected collections (none selected = all available). The setting is stored with the conversation
+(`PUT /api/conversations/{id}/knowledge`) and reused by *Regenerate*; chat without knowledge is unchanged. For each
+question:
+
+1. The retriever finds the relevant chunks.
+2. `RagContextBuilder` numbers them `[1]`, `[2]`, … and keeps them within `RAG_CONTEXT_MAX_TOKENS` (6000),
+   `rag.context.max-chunks` (8) and the room left in the model's context window; chunks that do not fit are left out
+   rather than cut (only a single oversized top chunk is shortened).
+3. The system message gets fixed rules: use and cite the excerpts, do not invent facts, and treat the excerpts as
+   **untrusted data** — instructions found in documents never override system or application rules and are never a
+   reason to call tools. Delimiter look-alikes inside documents are neutralised.
+4. The excerpts go into the current user turn only (`<knowledge>…</knowledge>` followed by `Question: …`). They are
+   not stored in the conversation, so history and summaries stay small.
+5. The selected chat provider answers — OpenAI, Qwen, Llama or any other.
+
+If nothing matches, or the knowledge base cannot be searched (for example the embedding server is down), the model
+answers without knowledge and the UI shows a notice below the answer instead of an error.
+
+### Citations
+
+Citations are created by the server from the chunks that were sent to the model; the model never has to invent
+identifiers. They are streamed as an SSE `citations` event before the answer, returned by the non-streaming API and
+stored with the message:
+
+```json
+{
+  "content": "Prices are converted with daily exchange rates [1].",
+  "citations": [
+    { "index": 1, "sourceId": "…", "chunkId": "…", "title": "Pricing Architecture.pdf", "pageNumber": 14,
+      "sectionTitle": "Currency conversion", "collectionName": "Engineering", "score": 0.91 }
+  ],
+  "knowledgeNotice": null
+}
+```
+
+The chat shows **Sources** below the answer (`[1] Pricing Architecture.pdf — Page 14 · Currency conversion`).
+Clicking a source opens the cited excerpt (`GET /api/knowledge/chunks/{chunkId}`) if the user may read it, and
+administrators get a link to the source in the admin panel. Citations survive the deletion of a source (the title
+remains, the excerpt is no longer available).
+
+### Admin knowledge panel
+
+- **`/admin/knowledge`** — statistics (sources, documents, text entries, chunks, indexed, processing, failed,
+  disabled, embedding model, retrievals and latency), filters (title or file name, collection, type, status, enabled,
+  tag, creation date), sorting (name, created, updated, chunk count, file size) and pagination. Per source: view,
+  edit, enable/disable, reindex or retry, delete. Buttons for *Add document*, *Add text*, *Collections* (create,
+  rename, enable/disable, delete; sources, chunks and storage per collection) and *Test retrieval*.
+- **`/admin/knowledge/{id}`** — tabs *Overview* (all metadata), *Extracted Text* (with character count and estimated
+  tokens), *Chunks* (list `# · Section · Page · Tokens` and a viewer with *Previous*/*Next*), *Metadata* (checksum,
+  versions, document properties, outline) and *Indexing* (status, embedding provider and model, chunks vs. stored
+  embeddings, timings of the last run, last error). Actions: edit, replace file, enable/disable, reindex/retry,
+  re-extract, delete.
+- **`/admin/knowledge/test`** — the RAG test console. *Search* runs retrieval only (no LLM) with collections, top K,
+  threshold, mode and tags, and lists rank, source, page, section, similarity / keyword / rerank scores and the chunk
+  text. *Generate answer* runs the whole pipeline with a chosen provider and model and shows the answer, its
+  citations, latency, tokens, cost, context size and the exact prompt.
+
+### Reindexing
+
+**Reindex** (per source; *Retry* for failed ones; **Reindex all** for sources embedded with another model) chunks the
+stored text again, embeds it and replaces chunks and vectors in one transaction. The old vectors stay searchable until
+the new ones are written, and duplicates cannot occur. **Re-extract** reads the original file again first. Editing a
+text entry or replacing a file removes the old vectors at once and reindexes. Reindex after changing the chunking
+settings or the embedding model.
+
+### Deleting knowledge
+
+Deleting asks for confirmation (*"This will permanently remove: 84 chunks, 84 embeddings, …"*). The source is then
+marked `DELETING` (running indexing jobs discard their results) and its record, original file, extracted text, chunks
+and vectors are removed in one transaction, so no orphaned vectors remain. Deleting a collection removes its sources
+the same way; the default collection cannot be deleted. **Disable** keeps everything but removes a source or a whole
+collection from retrieval immediately.
+
+### RAG configuration
+
+```yaml
+rag:
+  enabled: true                       # RAG_ENABLED
+  chunking:
+    strategy: recursive
+    chunk-size: 800
+    overlap: 150
+  retrieval:
+    mode: VECTOR                      # or HYBRID
+    top-k: 8
+    similarity-threshold: 0.70
+  context:
+    max-tokens: 6000
+    max-chunks: 8
+  embedding:
+    provider: openai
+    model: text-embedding-3-small
+  ingestion:
+    max-file-size: 50MB
+    max-extracted-characters: 5000000
+    max-text-entry-characters: 200000
+    concurrency: 2
+    extraction-timeout: PT5M
+  reranking:
+    enabled: false
+  vector:
+    store: pgvector
+    create-index: true
+    ef-search: 100
+```
+
+Every value can be overridden with an environment variable (`RAG_*`, see [`.env.example`](.env.example) and
+`application.yml`).
+
+### RAG security and observability
+
+- Only administrators can upload, add text, edit metadata, delete, reindex, manage collections, use the test console
+  and see ingestion errors (`/api/admin/knowledge/**`). Users can use the knowledge base in chat and open cited
+  excerpts of the collections they may read.
+- Collection-level permissions: by default every user may read every enabled collection. Registering a
+  `KnowledgeAccessPolicy` bean (for example by role or group) restricts chat retrieval, the collection picker and
+  citation excerpts without other changes.
+- Metrics: `rag_ingestion_total`, `rag_ingestion_failed_total`, `rag_ingestion_duration_seconds`, `rag_documents` and
+  `rag_chunks` (gauges; OpenMetrics reserves the `_total` suffix for counters), `rag_embedding_requests_total`,
+  `rag_embedding_duration_seconds`, `rag_retrieval_requests_total`, `rag_retrieval_duration_seconds`,
+  `rag_retrieved_chunks` — labelled `embedding_provider`, `embedding_model`, `collection` and `status`.
+- Logs contain ids, counts and durations — never document text.
+
+### RAG extension points
+
+| Feature | Where it plugs in |
+|---------|-------------------|
+| Web pages, Google Drive, SharePoint, Confluence, GitHub, Notion, S3, OneDrive, scheduled synchronisation | a connector that produces `NewContent` for `KnowledgeSourceWriter` (source type `URL` is reserved; checksums detect changes) |
+| OCR, image understanding | another `DocumentExtractor`, ordered before the PDF extractor |
+| Qdrant, Weaviate, Pinecone, Milvus, Elasticsearch / OpenSearch | implement `VectorStore` (and `KeywordSearcher` for hybrid search) |
+| Cross-encoder, Cohere or LLM reranking | implement `RerankingService`, select it with `rag.reranking.provider` |
+| Query rewriting, multi-query retrieval, HyDE | in `RagContextService`, before `RetrievalService` |
+| Parent-child retrieval, richer metadata filters | `ChunkingStrategy` (parent ids in chunk metadata) and `VectorFilter` |
+| Knowledge graph / GraphRAG | an additional retriever whose results are fused like the keyword results |
+| Document versioning | `version`, `parentSourceId` and checksums already exist; `NEW_VERSION` creates linked versions |
+
+### RAG troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Source *Failed* with an embedding error (`401`, unreachable, model not found) | Check `RAG_EMBEDDING_*` (key, base URL, model pulled on the server), then **Retry**. |
+| Upload rejected with `413` | Raise `RAG_MAX_FILE_SIZE`, `RAG_MAX_REQUEST_SIZE` and `NGINX_MAX_UPLOAD_SIZE` together. |
+| *Unsupported encryption* | The PDF is password protected; remove the protection and upload again. |
+| *No text could be extracted* | Scanned document without a text layer; OCR is not supported yet. |
+| The test console finds nothing | Lower the threshold (0 shows all scores), check that collections and sources are enabled and *Indexed*, and that no source shows *needs reindex*. |
+| Answers do not use the knowledge base | Turn on **Knowledge** in the composer and read the notice below the answer; small local models sometimes ignore context, so try a larger one. |
+| *needs reindex* after changing `RAG_EMBEDDING_MODEL` | Click **Reindex all** in Admin → Knowledge base. |
+| `type "vector" does not exist` / `extension "vector" is not available` | The database lacks pgvector: use the Compose image `pgvector/pgvector:pg17-trixie` or install the extension. |
+| An embedding model cannot be pulled (for example a corporate proxy blocks the download) | Use `RAG_EMBEDDING_PROVIDER=hashing` until the model is available, then switch and **Reindex all**. |
 
 ---
 
@@ -484,7 +861,30 @@ curl -s -X DELETE $API/api/conversations/<id> -H "$AUTH"
 curl -s "$API/api/admin/usage?days=7&tz=Europe/Berlin" -H "$AUTH" | jq
 curl -s -X PUT $API/api/admin/providers/llama/settings -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"enabled":true,"defaultModel":"llama3.1:8b","timeoutSeconds":120,"temperature":0.5,"maxTokens":2048}'
+
+# Knowledge base (administrators): upload, add text, follow indexing, inspect, test
+curl -s -X POST $API/api/admin/knowledge/files -H "$AUTH" -F file=@Architecture.pdf -F collectionId=<id> -F tags=pricing
+curl -s -X POST $API/api/admin/knowledge/text -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"title":"Pricing rules","content":"# Pricing\n\nEvery market has one currency.","tags":["pricing"]}'
+curl -s $API/api/admin/knowledge/<sourceId>/status -H "$AUTH" | jq
+curl -s "$API/api/admin/knowledge?collectionId=<id>&status=INDEXED&sort=UPDATED_AT&direction=desc" -H "$AUTH" | jq
+curl -s $API/api/admin/knowledge/<sourceId>/chunks -H "$AUTH" | jq
+curl -s -X POST $API/api/admin/knowledge/search -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"query":"How is currency converted?","topK":5,"similarityThreshold":0.3}' | jq
+curl -s -X POST $API/api/admin/knowledge/test-answer -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"question":"How is currency converted?","provider":"qwen"}' | jq
+
+# Chat with the knowledge base (all available collections, or "collectionIds":[...])
+curl -N -X POST $API/api/chat/stream -H "$AUTH" -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"message":"How is currency converted?","provider":"llama","knowledge":{"enabled":true,"collectionIds":[]}}'
 ```
+
+Knowledge-base endpoints (all under `/api/admin/knowledge`, `ADMIN` only): `POST /files`, `POST /text`, `GET /`
+(filter, sort, page), `GET /stats`, `GET|PUT|DELETE /{id}`, `GET /{id}/status`, `GET /{id}/content`,
+`GET /{id}/chunks`, `POST /{id}/reindex[?reextract=true]`, `POST /reindex-stale`, `POST /{id}/enable|disable`,
+`GET|POST /collections`, `PUT|DELETE /collections/{id}`, `POST /search`, `POST /test-answer`. For every user:
+`GET /api/knowledge/collections` and `GET /api/knowledge/chunks/{chunkId}` (cited excerpt).
 
 `GET /api/providers` example:
 
@@ -503,6 +903,7 @@ Chat stream events:
 
 ```text
 event: start      {"conversationId","userMessageId","assistantMessageId","provider","providerName","model","newConversation",...}
+event: citations  {"citations":[{"index":1,"title":"…","pageNumber":14,...}],"retrievedCount","notice"}   only with knowledge enabled
 event: reasoning  {"text":"..."}                  only for models exposing their thinking
 event: delta      {"text":"..."}                  answer tokens
 event: done       {"status":"COMPLETE|CANCELLED","finishReason","inputTokens","outputTokens","latencyMs","timeToFirstTokenMs","estimatedCost","local"}
@@ -517,7 +918,8 @@ event: title      {"conversationId","title"}      generated title of a new conve
 - **Health:** `/actuator/health` (+ `/liveness`, `/readiness`), provider health via `/api/providers/*/health`
 - **Metrics:** `/actuator/prometheus` — `llm_requests_total`, `llm_request_duration_seconds` (histogram),
   `llm_input_tokens`, `llm_output_tokens`, `llm_errors_total` (labels `provider`, `model`, `status`, `code`),
-  `llm_provider_up`, `llm_active_generations`, `resilience4j_circuitbreaker_*`, `http_server_requests_*`, JVM metrics.
+  `llm_provider_up`, `llm_active_generations`, `resilience4j_circuitbreaker_*`, `http_server_requests_*`, JVM metrics,
+  and the knowledge-base metrics `rag_*` ([list](#rag-security-and-observability)).
   `docker compose --profile monitoring up -d` starts Prometheus with a ready scrape config.
 - **Logs:** ECS JSON in Docker (`LOG_FORMAT`), every line carries the request `correlationId` (also returned as
   `X-Correlation-Id` and forwarded to providers as `X-Request-Id` / `X-Client-Request-Id`). API keys, `Authorization`
@@ -531,6 +933,9 @@ event: title      {"conversationId","title"}      generated title of a new conve
 - Provider keys stay on the server; the admin UI only shows a masked hint (`sk-••••abcd`)
 - Rate limits per IP (auth) and per user (chat, compare); max. 3 concurrent generations per user
 - nginx adds CSP, `X-Frame-Options`, `nosniff` and `Referrer-Policy`; model output is rendered without raw HTML
+- Knowledge base: administrator-only management, validated uploads (names, types, content sniffing, size and
+  decompression limits), retrieved text treated as untrusted data in prompts — see
+  [RAG security](#rag-security-and-observability)
 - In production: set `JWT_SECRET`, a strong `POSTGRES_PASSWORD`, terminate TLS in front of nginx, restrict
   `/actuator/prometheus` at the network level and set `springdoc.api-docs.enabled=false` if the API docs should not be public
 
@@ -540,15 +945,21 @@ event: title      {"conversationId","title"}      generated title of a new conve
 
 ```bash
 scripts/test.sh                 # frontend checks, then all backend tests (container engine auto-configured)
-cd backend && ./mvnw verify     # 95 tests: unit, WireMock adapter tests, Testcontainers integration tests
-cd frontend && npm test         # Vitest + React Testing Library
+cd backend && ./mvnw verify     # 154 tests: unit, WireMock adapter tests, Testcontainers integration tests
+cd frontend && npm test         # 47 Vitest + React Testing Library tests
 ```
 
-No test calls a real LLM: OpenAI, Qwen and Llama are simulated with WireMock (including SSE streams, errors and slow
-streams for cancellation), PostgreSQL runs in Testcontainers. Coverage includes provider resolution, the OpenAI /
-Qwen / Llama adapters, unavailable local providers, switching providers mid-conversation, conversation persistence,
-authorization, streaming and cancellation, context management and summarisation, resilience (retry safety, circuit
-breaker, timeouts) and metrics.
+No test calls a real LLM or embedding API: OpenAI, Qwen and Llama are simulated with WireMock (including SSE streams,
+errors and slow streams for cancellation), embeddings come from a deterministic `FakeEmbeddingProvider`, and
+PostgreSQL with pgvector runs in Testcontainers (`pgvector/pgvector:pg17-trixie`). Coverage includes provider
+resolution, the OpenAI / Qwen / Llama adapters, unavailable local providers, switching providers mid-conversation,
+conversation persistence, authorization, streaming and cancellation, context management and summarisation,
+resilience (retry safety, circuit breaker, timeouts) and metrics — and for the knowledge base: extraction of every
+file type, chunking, embeddings, vector storage and semantic search, ingestion of files and text, duplicates and
+versions, enable/disable, collection filtering, reindexing, deletion of chunks and vectors, context building, citations
+in chat and admin-only access. The frontend tests cover the knowledge list and filters, uploads with duplicate
+handling, text entries, the detail tabs and chunk viewer, delete confirmation, reindexing, the test console and
+citations.
 
 > Testcontainers with Podman: export `DOCKER_HOST` (Podman socket) and, for a rootful Podman machine,
 > `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/run/podman/podman.sock` (or `TESTCONTAINERS_RYUK_DISABLED=true`).
@@ -621,7 +1032,8 @@ automatically. Add a WireMock test like `OpenAiLlmProviderTest`.
 |---------|-------------------|
 | Tool / function calling, MCP servers | new `LlmChunk` subtype (`ToolCall`), tool definitions on `LlmRequest`, `LlmCapability.TOOL_CALLING` gating, an application-level tool executor (MCP client as an outbound port) |
 | Multimodal input, file uploads | content parts on `LlmMessage` (adapters already ignore unknown parts), `LlmCapability.VISION`, a storage port |
-| RAG, web search | a `RetrievalPort` used by `ConversationContextManager` to add grounded context before the history |
+| RAG extensions (connectors, OCR, other vector stores, rerankers, query rewriting, GraphRAG) | see [RAG extension points](#rag-extension-points) |
+| Web search | another `KnowledgeAugmenter`-style port used by `ChatService`, or a retriever fused with the knowledge results |
 | Speech-to-text / text-to-speech | separate ports (`TranscriptionProvider`, `SpeechProvider`) with the same registry/factory pattern |
 | Agentic workflows | orchestrate multiple `LlmProvider.chat/stream` calls in an application service; streaming events already support new event types |
 | Tokenizer-accurate budgets | implement `TokenEstimator` (e.g. per model family) — the context manager is unchanged |
@@ -632,11 +1044,11 @@ automatically. Add a WireMock test like `OpenAiLlmProviderTest`.
 
 | Document | Contents |
 |----------|----------|
-| [docs/architecture.md](docs/architecture.md) | Architecture with diagrams: context, containers, hexagonal layers, provider abstraction, streaming / failover / cancel / compare / health / auth flows, data model, deployment, cross-cutting concerns, limitations |
-| [docs/adr/](docs/adr/README.md) | Architecture decision records (hexagonal design, provider registry, OpenAI-compatible adapter, SSE, virtual threads, context strategy, retry safety, JWT) |
+| [docs/architecture.md](docs/architecture.md) | Architecture with diagrams: context, containers, hexagonal layers, provider abstraction, streaming / failover / cancel / compare / health / auth flows, knowledge base (ingestion, retrieval, RAG chat), data model, deployment, cross-cutting concerns, limitations |
+| [docs/adr/](docs/adr/README.md) | Architecture decision records (hexagonal design, provider registry, OpenAI-compatible adapter, SSE, virtual threads, context strategy, retry safety, JWT, RAG module with pgvector, asynchronous ingestion) |
 | [AGENTS.md](AGENTS.md) | Guide for AI coding agents and contributors: repository map, commands, architecture invariants, testing rules, definition of done |
 | [backend/AGENTS.md](backend/AGENTS.md), [frontend/AGENTS.md](frontend/AGENTS.md) | Package and component layout, conventions and gotchas per side |
-| [.github/skills/](.github/skills) | Step-by-step playbooks (`SKILL.md`): [local-stack](.github/skills/local-stack/SKILL.md), [add-llm-provider](.github/skills/add-llm-provider/SKILL.md), [run-tests](.github/skills/run-tests/SKILL.md), [database-migration](.github/skills/database-migration/SKILL.md) |
+| [.github/skills/](.github/skills) | Step-by-step playbooks (`SKILL.md`): [local-stack](.github/skills/local-stack/SKILL.md), [add-llm-provider](.github/skills/add-llm-provider/SKILL.md), [run-tests](.github/skills/run-tests/SKILL.md), [database-migration](.github/skills/database-migration/SKILL.md), [knowledge-base](.github/skills/knowledge-base/SKILL.md) |
 
 ---
 
@@ -658,3 +1070,4 @@ machine.
 | `docker: unknown command: compose` | Use the standalone `docker-compose` binary or `podman compose`. |
 | Integration tests cannot start containers | Ensure Docker/Podman is running; with Podman see the note in [Testing](#testing). |
 | Locked out after failed logins | Wait 15 minutes or let an administrator *Reset status* in Admin → Users. |
+| Knowledge base problems (indexing failures, no retrieval results, uploads rejected) | See [RAG troubleshooting](#rag-troubleshooting). |

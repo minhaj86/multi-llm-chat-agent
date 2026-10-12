@@ -56,6 +56,8 @@ describe('chat stream store', () => {
       error: null,
       metrics: null,
       startedAt: 0,
+      citations: null,
+      knowledgeNotice: null,
     },
   }
 

@@ -23,6 +23,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -34,16 +35,19 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
- * Base class for integration tests: real Spring context and PostgreSQL (Testcontainers, Flyway migrations),
- * with every LLM provider replaced by WireMock. Containers are started once and shared by all test classes.
+ * Base class for integration tests: real Spring context and PostgreSQL with pgvector (Testcontainers, Flyway
+ * migrations), with every LLM provider replaced by WireMock and embeddings by {@link FakeEmbeddingProvider}. Containers are started once and shared by all test classes.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@Import(FakeEmbeddingProvider.Configuration.class)
 public abstract class AbstractIntegrationTest {
 
-    protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17");
+    protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
+            DockerImageName.parse("pgvector/pgvector:pg17-trixie").asCompatibleSubstituteFor("postgres"));
     protected static final WireMockServer WIREMOCK = new WireMockServer(WireMockConfiguration.options().dynamicPort());
     protected static final int DEAD_PORT = freePort();
 

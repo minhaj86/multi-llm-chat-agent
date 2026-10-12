@@ -3,6 +3,9 @@ package com.example.aichat.application.chat;
 import com.example.aichat.application.chat.context.ContextInput;
 import com.example.aichat.application.chat.context.ConversationContextManager;
 import com.example.aichat.application.chat.context.PreparedContext;
+import com.example.aichat.application.chat.knowledge.KnowledgeAugmenter;
+import com.example.aichat.application.chat.knowledge.KnowledgeContext;
+import com.example.aichat.application.chat.knowledge.KnowledgeQuery;
 import com.example.aichat.application.common.ConflictException;
 import com.example.aichat.application.common.ResourceNotFoundException;
 import com.example.aichat.application.common.ValidationException;
@@ -19,6 +22,7 @@ import com.example.aichat.common.Texts;
 import com.example.aichat.common.Times;
 import com.example.aichat.domain.conversation.Conversation;
 import com.example.aichat.domain.conversation.ConversationRepository;
+import com.example.aichat.domain.conversation.KnowledgeSettings;
 import com.example.aichat.domain.conversation.Message;
 import com.example.aichat.domain.conversation.MessageRepository;
 import com.example.aichat.domain.conversation.MessageStatus;
@@ -44,6 +48,7 @@ import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 import reactor.core.publisher.Flux;
@@ -53,7 +58,8 @@ import reactor.core.scheduler.Schedulers;
 /**
  * Chat use case: persists the exchange, builds the provider-neutral context, streams the answer from whichever
  * provider was selected and records usage. Nothing in here depends on a particular vendor - providers are resolved
- * through {@link LlmProviderRegistry} and accessed through the {@code LlmProvider} port only.
+ * through {@link LlmProviderRegistry} and accessed through the {@code LlmProvider} port only. Knowledge-base
+ * context (RAG) comes through the {@link KnowledgeAugmenter} port; retrieval itself lives in the RAG module.
  *
  * <p>Lifecycle of a generation: the user message and an assistant placeholder ({@code STREAMING}) are stored
  * before streaming starts; the placeholder is finalised exactly once as {@code COMPLETE}, {@code CANCELLED} (stop
@@ -79,6 +85,7 @@ public class ChatService {
     private final BackgroundTasks tasks;
     private final ChatProperties properties;
     private final TransactionOperations transactions;
+    private final ObjectProvider<KnowledgeAugmenter> knowledge;
     private final Clock clock;
 
     public ChatService(ConversationRepository conversations, MessageRepository messages,
@@ -87,7 +94,8 @@ public class ChatService {
                        ProviderHealthMonitor healthMonitor, ProviderCatalogService catalog,
                        TitleService titleService, ConversationSummarizer summarizer,
                        GenerationRegistry generations, BackgroundTasks tasks, ChatProperties properties,
-                       TransactionOperations transactions, Clock clock) {
+                       TransactionOperations transactions, ObjectProvider<KnowledgeAugmenter> knowledge,
+                       Clock clock) {
         this.conversations = conversations;
         this.messages = messages;
         this.registry = registry;
@@ -102,6 +110,7 @@ public class ChatService {
         this.tasks = tasks;
         this.properties = properties;
         this.transactions = transactions;
+        this.knowledge = knowledge;
         this.clock = clock;
     }
 
@@ -123,14 +132,16 @@ public class ChatService {
                 .filter(m -> !m.id().equals(exchange.userMessage().id())
                         && !m.id().equals(exchange.assistantMessage().id()))
                 .toList();
-        PreparedContext context = prepareContext(exchange.conversation(), history, text);
+        KnowledgeContext knowledgeContext = retrieveKnowledge(command.userId(), exchange.conversation(),
+                exchange.assistantMessage().id(), text, command.correlationId());
+        PreparedContext context = prepareContext(exchange.conversation(), history, text, knowledgeContext);
         LlmRequest request = target.request(context.messages(), command.correlationId());
         String titleSeed = exchange.conversation().titleSource() == TitleSource.DEFAULT
                 ? firstUserMessage(history).orElse(text)
                 : null;
         return run(new Generation(command.userId(), exchange.conversation(), exchange.created(),
                 exchange.userMessage(), exchange.assistantMessage(), target, request, command.correlationId(), false,
-                titleSeed));
+                titleSeed, knowledgeContext));
     }
 
     /** Replaces the answer(s) to the last user message with a new answer (optionally from another provider). */
@@ -157,13 +168,15 @@ public class ChatService {
             return messages.save(Message.assistantPlaceholder(conversation.id(), target.providerId(), target.model(),
                     now));
         }));
-        PreparedContext context = prepareContext(conversation, history, lastUser.content());
+        KnowledgeContext knowledgeContext = retrieveKnowledge(command.userId(), conversation, placeholder.id(),
+                lastUser.content(), command.correlationId());
+        PreparedContext context = prepareContext(conversation, history, lastUser.content(), knowledgeContext);
         LlmRequest request = target.request(context.messages(), command.correlationId());
         String titleSeed = conversation.titleSource() == TitleSource.DEFAULT
                 ? firstUserMessage(history).orElse(lastUser.content())
                 : null;
         return run(new Generation(command.userId(), conversation, false, lastUser, placeholder, target, request,
-                command.correlationId(), true, titleSeed));
+                command.correlationId(), true, titleSeed, knowledgeContext));
     }
 
     /** Non-streaming variant: waits for the complete answer. */
@@ -189,8 +202,13 @@ public class ChatService {
             ChatEvent started = new ChatEvent.Started(g.conversation().id(), g.userMessage().id(), generationId,
                     g.target().providerId(), g.target().displayName(), g.target().model(), g.newConversation(),
                     g.conversation().title(), g.regenerated());
-            log.info("Generation started provider={} model={} conversation={} messages={}",
-                    g.target().providerId(), g.target().model(), g.conversation().id(), g.request().messages().size());
+            log.info("Generation started provider={} model={} conversation={} messages={} knowledgeChunks={}",
+                    g.target().providerId(), g.target().model(), g.conversation().id(), g.request().messages().size(),
+                    g.knowledge().citations().size());
+            Flux<ChatEvent> knowledgeEvents = g.knowledge().requested()
+                    ? Flux.just(new ChatEvent.KnowledgeRetrieved(g.conversation().id(), generationId,
+                    g.knowledge().citations(), g.knowledge().retrievedCount(), g.knowledge().notice()))
+                    : Flux.empty();
 
             Flux<ChatEvent> deltas = g.target().provider().stream(g.request())
                     .doOnNext(state::accept)
@@ -209,7 +227,7 @@ public class ChatService {
 
             Flux<ChatEvent> titleEvents = Flux.defer(() -> titleEvents(g, title));
 
-            return Flux.concat(Mono.just(started), deltas, completion, titleEvents)
+            return Flux.concat(Mono.just(started), knowledgeEvents, deltas, completion, titleEvents)
                     .onErrorResume(error -> Mono.fromCallable(() -> finish(g, state, title, Outcome.FAILED, error))
                             .subscribeOn(Schedulers.boundedElastic()))
                     .doOnCancel(() -> tasks.execute(() -> finish(g, state, title, Outcome.CANCELLED, null)))
@@ -308,14 +326,19 @@ public class ChatService {
             UUID promptId = command.systemPromptId() != null
                     ? command.systemPromptId()
                     : systemPrompts.defaultPrompt().map(SystemPrompt::id).orElse(null);
-            conversation = conversations.save(Conversation.start(command.userId(), TitleService.provisionalTitle(text),
-                    promptId, target.providerId(), target.model(), now));
+            Conversation started = Conversation.start(command.userId(), TitleService.provisionalTitle(text),
+                    promptId, target.providerId(), target.model(), now);
+            conversation = conversations.save(command.knowledge() == null ? started
+                    : started.withKnowledge(command.knowledge(), now));
             created = true;
         } else {
             conversation = conversations.findByIdAndUserId(command.conversationId(), command.userId())
                     .orElseThrow(() -> new ResourceNotFoundException("Conversation", command.conversationId()));
             if (command.systemPromptId() != null && !command.systemPromptId().equals(conversation.systemPromptId())) {
                 conversation = conversations.save(conversation.withSystemPrompt(command.systemPromptId(), now));
+            }
+            if (command.knowledge() != null && !command.knowledge().equals(conversation.knowledge())) {
+                conversation = conversations.save(conversation.withKnowledge(command.knowledge(), now));
             }
             conversations.touch(conversation.id(), target.providerId(), target.model(), now);
             created = false;
@@ -326,14 +349,27 @@ public class ChatService {
         return new Exchange(conversation, created, user, assistant);
     }
 
-    private PreparedContext prepareContext(Conversation conversation, List<Message> history, String userMessage) {
+    private PreparedContext prepareContext(Conversation conversation, List<Message> history, String userMessage,
+                                           KnowledgeContext knowledgeContext) {
         String systemPrompt = systemPrompts.contentFor(conversation.systemPromptId()).orElse(null);
         PreparedContext context = contextManager.prepare(new ContextInput(systemPrompt, conversation, history,
-                userMessage));
+                userMessage, knowledgeContext));
         log.debug("Context prepared strategy={} messages={} estimatedTokens={} omitted={} summary={}",
                 context.strategy(), context.messages().size(), context.estimatedTokens(),
                 context.omittedHistoryMessages(), context.summaryIncluded());
         return context;
+    }
+
+    /** Knowledge for the answer when the conversation uses the knowledge base (never throws). */
+    private KnowledgeContext retrieveKnowledge(UUID userId, Conversation conversation, UUID assistantMessageId,
+                                               String question, String correlationId) {
+        KnowledgeSettings settings = conversation.knowledge();
+        KnowledgeAugmenter augmenter = knowledge.getIfAvailable();
+        if (!settings.enabled() || augmenter == null || !augmenter.isEnabled()) {
+            return KnowledgeContext.NONE;
+        }
+        return augmenter.augment(new KnowledgeQuery(userId, conversation.id(), assistantMessageId, question,
+                settings.collectionIds(), correlationId));
     }
 
     private ExecutionRecord execution(Generation g, StreamAccumulator state, ExecutionStatus status, String code) {
@@ -388,6 +424,7 @@ public class ChatService {
                               LlmRequest request,
                               String correlationId,
                               boolean regenerated,
-                              String titleSeed) {
+                              String titleSeed,
+                              KnowledgeContext knowledge) {
     }
 }

@@ -1,5 +1,6 @@
 package com.example.aichat.application.chat.context;
 
+import com.example.aichat.application.chat.knowledge.KnowledgeContext;
 import com.example.aichat.domain.conversation.Conversation;
 import com.example.aichat.domain.conversation.Message;
 import java.util.List;
@@ -12,10 +13,19 @@ import java.util.List;
  * @param history      previous messages in chronological order, excluding {@code userMessage}
  * @param userMessage  the message that must be answered now
  */
-public record ContextInput(String systemPrompt, Conversation conversation, List<Message> history, String userMessage) {
+public record ContextInput(String systemPrompt,
+                           Conversation conversation,
+                           List<Message> history,
+                           String userMessage,
+                           KnowledgeContext knowledge) {
 
     public ContextInput {
         history = history == null ? List.of() : List.copyOf(history);
         userMessage = userMessage == null ? "" : userMessage;
+        knowledge = knowledge == null ? KnowledgeContext.NONE : knowledge;
+    }
+
+    public ContextInput(String systemPrompt, Conversation conversation, List<Message> history, String userMessage) {
+        this(systemPrompt, conversation, history, userMessage, KnowledgeContext.NONE);
     }
 }

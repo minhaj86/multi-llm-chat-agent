@@ -1,4 +1,5 @@
-# Rendered at container start by the nginx image (envsubst): ${BACKEND_URL} and ${NGINX_LOCAL_RESOLVERS}.
+# Rendered at container start by the nginx image (envsubst): ${BACKEND_URL}, ${NGINX_LOCAL_RESOLVERS} and
+# ${NGINX_MAX_UPLOAD_SIZE}.
 # Serves the SPA and proxies /api to the Spring Boot backend (Server-Sent Events are streamed unbuffered).
 
 server {
@@ -20,6 +21,24 @@ server {
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_min_length 1024;
+
+    # Knowledge-base document uploads: larger bodies (limit from NGINX_MAX_UPLOAD_SIZE), streamed to the backend
+    # instead of being buffered to disk first. The backend enforces its own limits (RAG_MAX_FILE_SIZE).
+    location = /api/admin/knowledge/files {
+        set $backend "${BACKEND_URL}";
+        proxy_pass $backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+
+        client_max_body_size ${NGINX_MAX_UPLOAD_SIZE};
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
 
     location /api/ {
         set $backend "${BACKEND_URL}";
