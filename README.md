@@ -11,7 +11,7 @@ model at any time, even in the middle of a conversation, without restarting anyt
 
 [Features](#features) · [Quick start](#quick-start-docker-compose) · [Scripts](#scripts) ·
 [Architecture](#architecture) · [Configuration](#configuration) · [API](#api) ·
-[Adding a provider](#adding-a-new-provider) · [Troubleshooting](#troubleshooting)
+[Adding a provider](#adding-a-new-provider) · [Documentation](#documentation) · [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -625,6 +625,18 @@ automatically. Add a WireMock test like `OpenAiLlmProviderTest`.
 | Speech-to-text / text-to-speech | separate ports (`TranscriptionProvider`, `SpeechProvider`) with the same registry/factory pattern |
 | Agentic workflows | orchestrate multiple `LlmProvider.chat/stream` calls in an application service; streaming events already support new event types |
 | Tokenizer-accurate budgets | implement `TokenEstimator` (e.g. per model family) — the context manager is unchanged |
+
+---
+
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| [docs/architecture.md](docs/architecture.md) | Architecture with diagrams: context, containers, hexagonal layers, provider abstraction, streaming / failover / cancel / compare / health / auth flows, data model, deployment, cross-cutting concerns, limitations |
+| [docs/adr/](docs/adr/README.md) | Architecture decision records (hexagonal design, provider registry, OpenAI-compatible adapter, SSE, virtual threads, context strategy, retry safety, JWT) |
+| [AGENTS.md](AGENTS.md) | Guide for AI coding agents and contributors: repository map, commands, architecture invariants, testing rules, definition of done |
+| [backend/AGENTS.md](backend/AGENTS.md), [frontend/AGENTS.md](frontend/AGENTS.md) | Package and component layout, conventions and gotchas per side |
+| [.github/skills/](.github/skills) | Step-by-step playbooks (`SKILL.md`): [local-stack](.github/skills/local-stack/SKILL.md), [add-llm-provider](.github/skills/add-llm-provider/SKILL.md), [run-tests](.github/skills/run-tests/SKILL.md), [database-migration](.github/skills/database-migration/SKILL.md) |
 
 ---
 
