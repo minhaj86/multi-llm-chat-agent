@@ -29,6 +29,10 @@ curated **knowledge base** (RAG over PostgreSQL + pgvector) with citations to th
 - Server-side **system prompt profiles** (General Assistant, Software Architect, Java Expert, Interview Assistant,
   Code Reviewer) — editable by administrators
 
+- **Audio chats:** capture microphone or shared speaker/tab audio, review its transcript or send it automatically,
+  and answer with any configured chat model. Saved audio chats have their own source, recording duration, maximum
+  output tokens and knowledge-base selection. See [Audio chats](#audio-chats).
+
 **Providers**
 - Provider/model selector built **entirely from the backend** (`/api/providers`); offline providers are shown as
   `Qwen Local — Offline` and cannot be selected
@@ -58,6 +62,57 @@ curated **knowledge base** (RAG over PostgreSQL + pgvector) with citations to th
   `llm_input_tokens`, `llm_output_tokens`, `llm_errors_total` with `provider`/`model`/`status` labels)
 
 ---
+
+## Audio chats
+
+Choose **New audio chat** in the sidebar. In **Audio settings**, choose microphone or speaker/browser tab, optionally
+select a microphone device, set the capture limit (5–120 seconds), and set maximum output tokens (empty uses the
+answering model's default). Save settings before capturing. The model selector at the top chooses the answering
+model; **Knowledge** enables the existing RAG pipeline and selects its collections. Retrieval mode, embedding model,
+reranking and context budgets use the existing server-side RAG configuration.
+
+**Start capture** requests browser permission. **Stop and transcribe** finishes one bounded recording; it also
+finishes at the capture limit or when sharing ends. Review/edit the transcript in the message box, then send it as a
+normal prompt. Existing draft text is preserved. Optionally enable **Send transcript automatically after capture**;
+each capture then submits one prompt. Start capture again for the next turn. Transcription and answer generation
+are separate operations; this is not continuous background listening. Audio chats are saved with an **Audio** badge
+after their first prompt, and their settings survive reopening and regeneration.
+
+The browser captures a separate input stream. It does not change the system output device, mute playback, or route
+the recording back to the speakers. Speaker capture uses the browser's screen-sharing picker with local playback
+suppression disabled: select **Share audio**. Chrome/Edge on desktop support tab audio; full system audio depends
+on the OS and browser. A source without an audio track is rejected with instructions. HTTPS or localhost is
+required. Display sharing may include a video track for permission purposes, but only audio is recorded/uploaded.
+Leaving the chat or pressing **Cancel capture** releases its tracks and cancels any client upload. Cancelling an
+upload cannot undo transcription already performed by the upstream service.
+
+Configure speech-to-text independently of the chat models in `.env`, then redeploy. It is disabled by default:
+
+```dotenv
+AUDIO_TRANSCRIPTION_ENABLED=true
+AUDIO_TRANSCRIPTION_BASE_URL=https://api.openai.com/v1
+AUDIO_TRANSCRIPTION_MODEL=whisper-1
+# Set AUDIO_TRANSCRIPTION_API_KEY or use the OPENAI_API_KEY fallback.
+```
+
+A local server implementing the OpenAI-compatible `POST /audio/transcriptions` multipart API can be used instead:
+set its base URL (including `/v1`, for example `http://host.docker.internal:8003/v1` in Compose), model name, and
+optional key. A chat-only server does not necessarily implement transcription. No transcription server is started
+automatically. In dev mode, use `localhost` for a host-local service; omit `AUDIO_TRANSCRIPTION_API_KEY` to inherit
+`OPENAI_API_KEY`, or set it explicitly. Compose uses that fallback when the audio key is empty too.
+
+`AUDIO_TRANSCRIPTION_TIMEOUT` defaults to `PT60S`; `AUDIO_MAX_UPLOAD_BYTES` to `10000000` (at most `25000000`);
+`AUDIO_RATE_LIMIT` to 10 transcription requests/minute/user. Keep the shared servlet and nginx multipart limits
+at least as large as the audio limit. The duration control bounds browser captures; the backend enforces byte limits.
+The authenticated backend holds all credentials, bounds uploads, limits concurrent transcription to one per user,
+and never retries a transcription POST. Raw audio is not saved in conversations or the knowledge base; only a
+submitted transcript is saved as message text. The configured service receives the captured audio.
+
+API additions: `GET /api/audio/config`, multipart `POST /api/audio/transcriptions` (`file`), and
+`PUT /api/conversations/{id}/audio`. New chat requests accept `type: "AUDIO"` and
+`audio: {source: "MICROPHONE" | "SPEAKER", maxOutputTokens: null | number, captureSeconds: number, autoSend: boolean}`.
+Existing conversations default to `TEXT`; their type cannot be changed. Flyway migration V4 adds the type and saved
+audio settings without rewriting existing data. No audio bytes or new event types enter the existing SSE protocol.
 
 ## Quick start (Docker Compose)
 

@@ -1,6 +1,8 @@
 package com.example.aichat.api.chat;
 
 import com.example.aichat.api.conversation.ConversationDtos.KnowledgeSelection;
+import com.example.aichat.api.conversation.ConversationDtos.AudioSelection;
+import com.example.aichat.domain.conversation.ConversationType;
 import com.example.aichat.application.chat.ChatEvent;
 import com.example.aichat.application.chat.ChatResult;
 import com.example.aichat.application.chat.knowledge.KnowledgeCitation;
@@ -32,7 +34,9 @@ public final class ChatDtos {
                               @Size(max = 64) String provider,
                               @Size(max = 200) String model,
                               UUID systemPromptId,
-                              @Valid KnowledgeSelection knowledge) {
+                              @Valid KnowledgeSelection knowledge,
+                              ConversationType type,
+                              @Valid AudioSelection audio) {
 
         @Override
         public String toString() {

@@ -24,7 +24,9 @@ public record Conversation(UUID id,
                            Instant summarizedUntil,
                            Instant createdAt,
                            Instant updatedAt,
-                           KnowledgeSettings knowledge) {
+                           KnowledgeSettings knowledge,
+                           ConversationType type,
+                           AudioSettings audio) {
 
     public static final int MAX_TITLE_LENGTH = 200;
 
@@ -34,6 +36,15 @@ public record Conversation(UUID id,
         title = normalizeTitle(title);
         titleSource = titleSource == null ? TitleSource.DEFAULT : titleSource;
         knowledge = knowledge == null ? KnowledgeSettings.DISABLED : knowledge;
+        type = type == null ? ConversationType.TEXT : type;
+        audio = type == ConversationType.AUDIO ? (audio == null ? AudioSettings.DEFAULTS : audio) : null;
+    }
+
+    public Conversation(UUID id, UUID userId, String title, TitleSource titleSource, UUID systemPromptId,
+                        String lastProvider, String lastModel, String summary, Instant summarizedUntil,
+                        Instant createdAt, Instant updatedAt, KnowledgeSettings knowledge) {
+        this(id, userId, title, titleSource, systemPromptId, lastProvider, lastModel, summary, summarizedUntil,
+                createdAt, updatedAt, knowledge, ConversationType.TEXT, null);
     }
 
     public static Conversation start(UUID userId, String provisionalTitle, UUID systemPromptId,
@@ -48,17 +59,22 @@ public record Conversation(UUID id,
 
     public Conversation rename(String newTitle, Instant now) {
         return new Conversation(id, userId, newTitle, TitleSource.USER, systemPromptId, lastProvider, lastModel,
-                summary, summarizedUntil, createdAt, now, knowledge);
+                summary, summarizedUntil, createdAt, now, knowledge, type, audio);
     }
 
     public Conversation withSystemPrompt(UUID promptId, Instant now) {
         return new Conversation(id, userId, title, titleSource, promptId, lastProvider, lastModel,
-                summary, summarizedUntil, createdAt, now, knowledge);
+                summary, summarizedUntil, createdAt, now, knowledge, type, audio);
     }
 
     public Conversation withKnowledge(KnowledgeSettings settings, Instant now) {
         return new Conversation(id, userId, title, titleSource, systemPromptId, lastProvider, lastModel,
-                summary, summarizedUntil, createdAt, now, settings);
+                summary, summarizedUntil, createdAt, now, settings, type, audio);
+    }
+
+    public Conversation withAudio(AudioSettings settings, Instant now) {
+        return new Conversation(id, userId, title, titleSource, systemPromptId, lastProvider, lastModel,
+                summary, summarizedUntil, createdAt, now, knowledge, ConversationType.AUDIO, settings);
     }
 
     public boolean hasSummary() {

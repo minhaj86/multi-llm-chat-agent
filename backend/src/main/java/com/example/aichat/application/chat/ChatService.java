@@ -21,6 +21,7 @@ import com.example.aichat.common.CorrelationIdFilter;
 import com.example.aichat.common.Texts;
 import com.example.aichat.common.Times;
 import com.example.aichat.domain.conversation.Conversation;
+import com.example.aichat.domain.conversation.ConversationType;
 import com.example.aichat.domain.conversation.ConversationRepository;
 import com.example.aichat.domain.conversation.KnowledgeSettings;
 import com.example.aichat.domain.conversation.Message;
@@ -31,6 +32,7 @@ import com.example.aichat.domain.llm.FinishReason;
 import com.example.aichat.domain.llm.LlmChunk;
 import com.example.aichat.domain.llm.LlmRequest;
 import com.example.aichat.domain.llm.LlmUsage;
+import com.example.aichat.domain.llm.ReasoningMode;
 import com.example.aichat.domain.llm.exception.LlmException;
 import com.example.aichat.domain.prompt.SystemPrompt;
 import com.example.aichat.domain.usage.ExecutionPurpose;
@@ -135,7 +137,8 @@ public class ChatService {
         KnowledgeContext knowledgeContext = retrieveKnowledge(command.userId(), exchange.conversation(),
                 exchange.assistantMessage().id(), text, command.correlationId());
         PreparedContext context = prepareContext(exchange.conversation(), history, text, knowledgeContext);
-        LlmRequest request = target.request(context.messages(), command.correlationId());
+        LlmRequest request = target.request(context.messages(), command.correlationId(), ReasoningMode.DEFAULT,
+                exchange.conversation().audio() == null ? null : exchange.conversation().audio().maxOutputTokens());
         String titleSeed = exchange.conversation().titleSource() == TitleSource.DEFAULT
                 ? firstUserMessage(history).orElse(text)
                 : null;
@@ -171,7 +174,8 @@ public class ChatService {
         KnowledgeContext knowledgeContext = retrieveKnowledge(command.userId(), conversation, placeholder.id(),
                 lastUser.content(), command.correlationId());
         PreparedContext context = prepareContext(conversation, history, lastUser.content(), knowledgeContext);
-        LlmRequest request = target.request(context.messages(), command.correlationId());
+        LlmRequest request = target.request(context.messages(), command.correlationId(), ReasoningMode.DEFAULT,
+                conversation.audio() == null ? null : conversation.audio().maxOutputTokens());
         String titleSeed = conversation.titleSource() == TitleSource.DEFAULT
                 ? firstUserMessage(history).orElse(lastUser.content())
                 : null;
@@ -328,12 +332,26 @@ public class ChatService {
                     : systemPrompts.defaultPrompt().map(SystemPrompt::id).orElse(null);
             Conversation started = Conversation.start(command.userId(), TitleService.provisionalTitle(text),
                     promptId, target.providerId(), target.model(), now);
+            if (command.type() == ConversationType.AUDIO) {
+                started = started.withAudio(command.audio(), now);
+            } else if (command.audio() != null) {
+                throw new ValidationException("NOT_AUDIO_CHAT", "Audio settings require an audio conversation");
+            }
             conversation = conversations.save(command.knowledge() == null ? started
                     : started.withKnowledge(command.knowledge(), now));
             created = true;
         } else {
             conversation = conversations.findByIdAndUserId(command.conversationId(), command.userId())
                     .orElseThrow(() -> new ResourceNotFoundException("Conversation", command.conversationId()));
+            if (command.type() != null && command.type() != conversation.type()) {
+                throw new ValidationException("CHAT_TYPE_MISMATCH", "The conversation type cannot be changed");
+            }
+            if (command.audio() != null) {
+                if (conversation.type() != ConversationType.AUDIO) {
+                    throw new ValidationException("NOT_AUDIO_CHAT", "Audio settings require an audio conversation");
+                }
+                conversation = conversations.save(conversation.withAudio(command.audio(), now));
+            }
             if (command.systemPromptId() != null && !command.systemPromptId().equals(conversation.systemPromptId())) {
                 conversation = conversations.save(conversation.withSystemPrompt(command.systemPromptId(), now));
             }

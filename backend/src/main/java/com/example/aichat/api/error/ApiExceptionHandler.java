@@ -2,6 +2,7 @@ package com.example.aichat.api.error;
 
 import com.example.aichat.application.auth.AccountUnavailableException;
 import com.example.aichat.application.auth.InvalidCredentialsException;
+import com.example.aichat.application.audio.AudioTranscriptionException;
 import com.example.aichat.application.common.ConflictException;
 import com.example.aichat.application.common.ResourceNotFoundException;
 import com.example.aichat.application.common.TooManyRequestsException;
@@ -131,6 +132,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         log.error("Unexpected error", e);
         return Problems.of(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
                 "An unexpected error occurred. Please try again later.");
+    }
+
+    @ExceptionHandler(AudioTranscriptionException.class)
+    ProblemDetail audio(AudioTranscriptionException e) {
+        HttpStatus status = switch (e.kind()) {
+            case DISABLED -> HttpStatus.SERVICE_UNAVAILABLE;
+            case INVALID_AUDIO -> HttpStatus.BAD_REQUEST;
+            case TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE;
+            case BUSY -> HttpStatus.TOO_MANY_REQUESTS;
+            case UPSTREAM_FAILURE -> HttpStatus.BAD_GATEWAY;
+            case TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
+        };
+        return Problems.of(status, "AUDIO_" + e.kind().name(), e.getMessage());
     }
 
     @Override

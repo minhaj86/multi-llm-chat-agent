@@ -3,7 +3,7 @@ import { useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { chatApi } from '../api/client'
 import { ApiError, errorMessage } from '../api/http'
-import type { ChatStreamEvent, Conversation, ConversationDetail, KnowledgeSettings } from '../api/types'
+import type { AudioSettings, ChatStreamEvent, Conversation, ConversationDetail, KnowledgeSettings } from '../api/types'
 import { newId } from '../lib/format'
 import { createTokenBuffer, NEW_CHAT_SLOT, type PendingExchange, useChatStreamStore } from '../store/chatStream'
 
@@ -19,10 +19,10 @@ export interface Target {
  * Sends messages / regenerates answers for one conversation and streams the response into the chat store.
  * The pending exchange is shown optimistically and replaced by the persisted messages once the stream ends.
  */
-export function useChatSender(conversationId: string | null) {
+export function useChatSender(conversationId: string | null, newChatSlot = NEW_CHAT_SLOT) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const slot = conversationId ?? NEW_CHAT_SLOT
+  const slot = conversationId ?? newChatSlot
   const exchange = useChatStreamStore((s) => s.exchanges[slot])
   const isStreaming = exchange?.assistant.status === 'streaming'
 
@@ -33,6 +33,7 @@ export function useChatSender(conversationId: string | null) {
       text: string | null,
       systemPromptId: string | null,
       knowledge: KnowledgeSettings | null,
+      audio: AudioSettings | null = null,
     ) => {
       const store = useChatStreamStore.getState()
       const key = newId()
@@ -92,6 +93,8 @@ export function useChatSender(conversationId: string | null) {
                   createdAt: now,
                   updatedAt: now,
                   knowledge: knowledge ?? undefined,
+                  type: audio ? 'AUDIO' : 'TEXT',
+                  audio,
                 },
                 messages: [],
               })
@@ -105,6 +108,9 @@ export function useChatSender(conversationId: string | null) {
                   lastModel: data.model,
                   createdAt: now,
                   updatedAt: now,
+                  type: audio ? 'AUDIO' : 'TEXT',
+                  audio,
+                  knowledge: knowledge ?? undefined,
                 },
                 ...(old ?? []).filter((c) => c.id !== data.conversationId),
               ])
@@ -159,6 +165,8 @@ export function useChatSender(conversationId: string | null) {
               model: target.model,
               systemPromptId: conversationId ? null : systemPromptId,
               knowledge,
+              type: !conversationId && audio ? 'AUDIO' : undefined,
+              audio,
             },
             onEvent,
             controller.signal,
@@ -222,8 +230,8 @@ export function useChatSender(conversationId: string | null) {
   )
 
   const send = useCallback(
-    (text: string, target: Target, systemPromptId: string | null, knowledge: KnowledgeSettings | null = null) =>
-      run('send', target, text, systemPromptId, knowledge),
+    (text: string, target: Target, systemPromptId: string | null, knowledge: KnowledgeSettings | null = null,
+      audio: AudioSettings | null = null) => run('send', target, text, systemPromptId, knowledge, audio),
     [run],
   )
 

@@ -16,6 +16,7 @@ consequences and alternatives considered.
 | [0008](0008-stateless-jwt-with-live-account-checks.md) | Stateless JWT with live account checks | Accepted |
 | [0009](0009-rag-module-with-pgvector.md) | Knowledge base as a RAG module behind ports, with PostgreSQL + pgvector | Accepted |
 | [0010](0010-asynchronous-ingestion-and-index-consistency.md) | Asynchronous ingestion with row-locked, transactional index updates | Accepted |
+| [0011](0011-browser-audio-and-independent-transcription.md) | Browser audio capture with independent transcription | Proposed |
 
 ## Writing a new ADR
 

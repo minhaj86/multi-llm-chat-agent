@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { KnowledgeSettings } from '../api/types'
+import { DEFAULT_AUDIO_SETTINGS, type AudioSettings, type KnowledgeSettings } from '../api/types'
 
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -14,6 +14,8 @@ interface PreferencesState {
   systemPromptId: string | null
   /** Knowledge-base use for new conversations (existing conversations keep their own setting). */
   knowledge: KnowledgeSettings
+  audio: AudioSettings
+  setAudio: (audio: AudioSettings) => void
   expandReasoning: boolean
   enterToSend: boolean
   setTheme: (theme: Theme) => void
@@ -33,6 +35,8 @@ export const usePreferences = create<PreferencesState>()(
       models: {},
       systemPromptId: null,
       knowledge: { enabled: false, collectionIds: [] },
+      audio: DEFAULT_AUDIO_SETTINGS,
+      setAudio: (audio) => set({ audio }),
       expandReasoning: false,
       enterToSend: true,
       setTheme: (theme) => set({ theme }),

@@ -109,7 +109,8 @@ public class ChatController {
     private static ChatCommand command(CurrentUser user, ChatRequest request, HttpServletRequest httpRequest) {
         return new ChatCommand(user.id(), request.conversationId(), request.message(), request.provider(),
                 request.model(), request.systemPromptId(), CorrelationIdFilter.current(httpRequest),
-                request.knowledge() == null ? null : request.knowledge().toSettings());
+                request.knowledge() == null ? null : request.knowledge().toSettings(), request.type(),
+                request.audio() == null ? null : request.audio().toSettings());
     }
 
     static ServerSentEvent<Object> toSse(ChatEvent event) {

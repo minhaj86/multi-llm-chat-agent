@@ -3,6 +3,8 @@ package com.example.aichat.api.conversation;
 import com.example.aichat.application.chat.knowledge.KnowledgeCitation;
 import com.example.aichat.application.conversation.ConversationDetails;
 import com.example.aichat.domain.conversation.Conversation;
+import com.example.aichat.domain.conversation.ConversationType;
+import com.example.aichat.domain.conversation.AudioSettings;
 import com.example.aichat.domain.conversation.KnowledgeSettings;
 import com.example.aichat.domain.conversation.Message;
 import com.example.aichat.domain.conversation.MessageStatus;
@@ -10,6 +12,9 @@ import com.example.aichat.domain.conversation.TitleSource;
 import com.example.aichat.domain.llm.ProviderKind;
 import com.example.aichat.domain.usage.LlmExecution;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -33,6 +38,16 @@ public final class ConversationDtos {
     }
 
     public record SystemPromptSelection(UUID systemPromptId) {
+    }
+
+    public record AudioSelection(@NotNull AudioSettings.Source source,
+                                 @Min(1) @Max(128_000) Integer maxOutputTokens,
+                                 @Min(5) @Max(120) int captureSeconds,
+                                 boolean autoSend) {
+
+        public AudioSettings toSettings() {
+            return new AudioSettings(source, maxOutputTokens, captureSeconds, autoSend);
+        }
     }
 
     /**
@@ -59,13 +74,15 @@ public final class ConversationDtos {
                                        String lastModel,
                                        Instant createdAt,
                                        Instant updatedAt,
-                                       KnowledgeSelection knowledge) {
+                                       KnowledgeSelection knowledge,
+                                       ConversationType type,
+                                       AudioSettings audio) {
 
         public static ConversationResponse of(Conversation conversation) {
             return new ConversationResponse(conversation.id(), conversation.title(), conversation.titleSource(),
                     conversation.systemPromptId(), conversation.lastProvider(), conversation.lastModel(),
                     conversation.createdAt(), conversation.updatedAt(),
-                    KnowledgeSelection.of(conversation.knowledge()));
+                    KnowledgeSelection.of(conversation.knowledge()), conversation.type(), conversation.audio());
         }
     }
 

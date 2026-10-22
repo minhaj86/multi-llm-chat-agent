@@ -93,6 +93,14 @@ With knowledge enabled (`knowledge` in the request, stored on the conversation),
 appends the returned rules to the system message and puts the delimited excerpts before the question in the current
 user turn only; a `citations` event follows `start`. Failures degrade to an answer without knowledge plus a notice.
 
+## Audio chat
+
+Audio chat ingress: authenticated `api/audio` → `application/audio/AudioTranscriptionService` → the `AudioTranscriber`
+port → `infrastructure/llm/compatible/CompatibleAudioTranscriber`. Speech-to-text settings (`audio.transcription.*`)
+are independent of chat provider settings. Keep uploads bounded, errors sanitized and transcription POSTs free of
+retries. Raw audio is transient; submitted transcripts use the ordinary chat and knowledge path. Conversation type
+and audio preferences are persisted by migration V4, and saved token overrides apply to send and regeneration.
+
 ## Knowledge base (RAG)
 
 - **Ingestion**: controllers → `DocumentIngestionService`/`TextIngestionService` (validation, metadata) →

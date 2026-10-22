@@ -150,12 +150,27 @@ app:
         key: USER
         capacity: ${COMPARE_RATE_LIMIT:10}
         refill-period: PT1M
+      - name: audio
+        paths: [ /api/audio/transcriptions ]
+        methods: [ POST ]
+        key: USER
+        capacity: ${AUDIO_RATE_LIMIT:10}
+        refill-period: PT1M
       - name: health-refresh
         paths: [ /api/providers/*/health ]
         methods: [ GET ]
         key: USER
         capacity: 30
         refill-period: PT1M
+
+audio:
+  transcription:
+    enabled: ${AUDIO_TRANSCRIPTION_ENABLED:false}
+    base-url: ${AUDIO_TRANSCRIPTION_BASE_URL:https://api.openai.com/v1}
+    api-key: ${AUDIO_TRANSCRIPTION_API_KEY:${OPENAI_API_KEY:}}
+    model: ${AUDIO_TRANSCRIPTION_MODEL:whisper-1}
+    timeout: ${AUDIO_TRANSCRIPTION_TIMEOUT:PT60S}
+    max-upload-bytes: ${AUDIO_MAX_UPLOAD_BYTES:10000000}
 
 chat:
   max-message-length: ${CHAT_MAX_MESSAGE_LENGTH:32000}

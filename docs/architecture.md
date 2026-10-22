@@ -391,6 +391,24 @@ Tokens are stateless, but every request checks the live account state. Disabling
 effect immediately ([ADR 0008](adr/0008-stateless-jwt-with-live-account-checks.md)). Repositories always filter by the
 owner, so other users' conversations return 404.
 
+### 6.7 Audio chat
+
+Browser `getUserMedia` (microphone) or `getDisplayMedia` (speaker/tab) creates an independent capture stream.
+`MediaRecorder` records only its audio tracks, in bounded turns, with speaker playback suppression disabled.
+Navigation/cancellation stops every owned track and aborts the client upload. Shared video is never recorded.
+
+`POST /api/audio/transcriptions` validates authenticated, size-bounded multipart uploads and calls
+`AudioTranscriptionService` → `AudioTranscriber` (outbound port) → `CompatibleAudioTranscriber`. Transcription
+configuration (`audio.transcription.*`) is independent of chat providers; credentials and protocol details remain
+on the backend. There are no retries, and service failures become sanitized RFC 9457 errors. Browser captures have
+a 5–120 second duration; the backend additionally enforces byte size, per-user rate and concurrency limits.
+
+The transcript is reviewed in the composer (or explicitly auto-submitted), then follows the normal chat and
+`KnowledgeAugmenter` flow. Only submitted text is persisted. Conversation type and audio preferences are saved;
+the output-token override is applied both to new answers and regeneration. Existing conversations default to
+`TEXT`. See [ADR 0011](adr/0011-browser-audio-and-independent-transcription.md) and [Audio chats](../README.md#audio-chats)
+for browser limitations and configuration.
+
 ## 7. Context management
 
 `ConversationContextManager` prepares a provider-neutral request from the conversation:
@@ -740,6 +758,8 @@ erDiagram
         timestamptz summarized_until
         boolean knowledge_enabled
         uuid_array knowledge_collection_ids "empty = all"
+        varchar type "TEXT or AUDIO"
+        jsonb audio_settings "source, maxOutputTokens, captureSeconds, autoSend"
     }
     MESSAGES {
         uuid id PK

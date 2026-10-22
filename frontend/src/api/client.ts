@@ -2,6 +2,8 @@ import { apiFetch } from './http'
 import { postEventStream } from './stream'
 import type {
   AdminProvider,
+  AudioSettings,
+  AudioConfiguration,
   AdminUser,
   AuthResponse,
   ChatStreamEvent,
@@ -65,6 +67,8 @@ export const conversationApi = {
     apiFetch<Conversation>(`/api/conversations/${id}/system-prompt`, { method: 'PUT', json: { systemPromptId } }),
   changeKnowledge: (id: string, knowledge: KnowledgeSettings) =>
     apiFetch<Conversation>(`/api/conversations/${id}/knowledge`, { method: 'PUT', json: knowledge }),
+  changeAudio: (id: string, audio: AudioSettings) =>
+    apiFetch<Conversation>(`/api/conversations/${id}/audio`, { method: 'PUT', json: audio }),
   remove: (id: string) => apiFetch<void>(`/api/conversations/${id}`, { method: 'DELETE' }),
 }
 
@@ -79,6 +83,18 @@ export interface ChatStreamRequest {
   model?: string | null
   systemPromptId?: string | null
   knowledge?: KnowledgeSettings | null
+  type?: 'TEXT' | 'AUDIO'
+  audio?: AudioSettings | null
+}
+
+export const audioApi = {
+  config: () => apiFetch<AudioConfiguration>('/api/audio/config'),
+  transcribe: (recording: Blob, signal: AbortSignal) => {
+    const form = new FormData()
+    const extension = recording.type.includes('mp4') ? 'm4a' : recording.type.includes('ogg') ? 'ogg' : 'webm'
+    form.append('file', recording, `recording.${extension}`)
+    return apiFetch<{ text: string }>('/api/audio/transcriptions', { method: 'POST', form, signal })
+  },
 }
 
 export const chatApi = {

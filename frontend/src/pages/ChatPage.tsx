@@ -1,10 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquareOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useParams } from 'react-router'
 import { conversationApi } from '../api/client'
 import { ApiError } from '../api/http'
-import type { ConversationDetail, KnowledgeSettings } from '../api/types'
+import { DEFAULT_AUDIO_SETTINGS, type AudioSettings, type ConversationDetail, type KnowledgeSettings } from '../api/types'
+import { AudioControls } from '../components/chat/AudioControls'
 import { toChatItems } from '../components/chat/chatItems'
 import { Composer } from '../components/chat/Composer'
 import { KnowledgeSelector } from '../components/chat/KnowledgeSelector'
@@ -20,17 +21,44 @@ import { usePreferences } from '../store/preferences'
 
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>()
+  const { pathname } = useLocation()
+  return <ChatSession key={conversationId ?? pathname} />
+}
+
+function ChatSession() {
+  const { conversationId } = useParams<{ conversationId: string }>()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const detail = useConversation(conversationId)
   const selection = useProviderSelection()
-  const { exchange, isStreaming, send, regenerate, stop, dismiss } = useChatSender(conversationId ?? null)
+  const { exchange, isStreaming, send, regenerate, stop, dismiss } = useChatSender(
+    conversationId ?? null, location.pathname === '/audio' ? 'new-audio' : undefined,
+  )
   const preferredModels = usePreferences((s) => s.models)
   const newChatPromptId = usePreferences((s) => s.systemPromptId)
   const setNewChatPromptId = usePreferences((s) => s.setSystemPromptId)
   const newChatKnowledge = usePreferences((s) => s.knowledge)
   const setNewChatKnowledge = usePreferences((s) => s.setKnowledge)
-  const [draft, setDraft] = useState<{ text: string; nonce: number }>()
+  const newChatAudio = usePreferences((s) => s.audio)
+  const setNewChatAudio = usePreferences((s) => s.setAudio)
+  const [audioBusy, setAudioBusy] = useState(false)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [draft, setDraft] = useState<{ text: string; nonce: number; append?: boolean }>()
   const { providers, selectProvider, selectModel } = selection
+  const isAudio = location.pathname === '/audio' || detail.data?.conversation.type === 'AUDIO'
+  const audio = isAudio ? (conversationId ? detail.data?.conversation.audio ?? DEFAULT_AUDIO_SETTINGS : newChatAudio) : null
+
+  const changeAudio = async (next: AudioSettings) => {
+    if (!conversationId) {
+      setNewChatAudio(next)
+      return
+    }
+    const updated = await conversationApi.changeAudio(conversationId, next)
+    queryClient.setQueryData<ConversationDetail>(['conversation', conversationId], (old) =>
+      old ? { ...old, conversation: updated } : old,
+    )
+    void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+  }
 
   // When an existing conversation is opened, restore the provider/model it last used (if still available).
   const restoredFor = useRef<string | null>(null)
@@ -76,6 +104,7 @@ export function ChatPage() {
     : newChatKnowledge
 
   const changeKnowledge = async (next: KnowledgeSettings) => {
+    setSettingsError(null)
     if (!conversationId) {
       setNewChatKnowledge(next)
       return
@@ -88,6 +117,7 @@ export function ChatPage() {
       const updated = await conversationApi.changeKnowledge(conversationId, next)
       queryClient.setQueryData<ConversationDetail>(key, (old) => (old ? { ...old, conversation: updated } : old))
     } catch {
+      setSettingsError('Knowledge settings could not be saved. Please try again.')
       void queryClient.invalidateQueries({ queryKey: key })
     }
   }
@@ -100,7 +130,7 @@ export function ChatPage() {
     if (exchange && exchange.assistant.status !== 'streaming') {
       dismiss()
     }
-    void send(text, target, newChatPromptId, knowledge)
+    void send(text, target, newChatPromptId, knowledge, audio)
   }
 
   /** Regenerates the last answer; if the last attempt never reached the server, re-sends the message instead. */
@@ -113,14 +143,14 @@ export function ChatPage() {
       if (exchange && !exchange.assistant.id && exchange.userMessage) {
         const text = exchange.userMessage.content
         dismiss()
-        void send(text, target, newChatPromptId, knowledge)
+        void send(text, target, newChatPromptId, knowledge, audio)
         return
       }
       if (conversationId) {
         void regenerate(target)
       }
     },
-    [targetFor, exchange, dismiss, send, newChatPromptId, knowledge, conversationId, regenerate],
+    [targetFor, exchange, dismiss, send, newChatPromptId, knowledge, audio, conversationId, regenerate],
   )
 
   const handleSwitch = useCallback(
@@ -173,7 +203,7 @@ export function ChatPage() {
 
   const loading = !!conversationId && detail.isLoading && !exchange
   const showWelcome = !conversationId && items.length === 0
-  const canRegenerate = !isStreaming && items.some((item) => item.role === 'user')
+  const canRegenerate = !isStreaming && !audioBusy && items.some((item) => item.role === 'user')
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -181,7 +211,7 @@ export function ChatPage() {
         <div className="flex flex-1 items-center justify-center text-zinc-400">
           <Spinner className="h-6 w-6" />
         </div>
-      ) : showWelcome ? (
+      ) : showWelcome && !isAudio ? (
         <WelcomeScreen onPick={(text) => setDraft({ text, nonce: Date.now() })} />
       ) : (
         <MessageList
@@ -193,11 +223,23 @@ export function ChatPage() {
           onSwitchProvider={handleSwitch}
         />
       )}
+      {audio && !loading && (
+        <AudioControls value={audio} onChange={changeAudio}
+          disabled={isStreaming} onBusyChange={setAudioBusy}
+          onTranscript={(text, autoSend) => {
+            if (autoSend && !isStreaming && !disabledReason && selection.provider?.available && text.length <= 32_000) {
+              handleSend(text)
+            } else {
+              setDraft({ text, nonce: Date.now(), append: true })
+            }
+          }} />
+      )}
+      {settingsError && <p role="alert" className="px-4 pb-2 text-center text-xs text-red-600">{settingsError}</p>}
       <Composer
         onSend={handleSend}
         onStop={stop}
         isStreaming={isStreaming}
-        disabledReason={disabledReason}
+        disabledReason={audioBusy ? 'Finish or cancel audio capture before sending a message.' : disabledReason}
         draft={draft}
         autoFocusKey={conversationId ?? 'new'}
         toolbar={
@@ -205,9 +247,9 @@ export function ChatPage() {
             <SystemPromptPicker
               value={conversationId ? (detail.data?.conversation.systemPromptId ?? null) : newChatPromptId}
               onChange={(id) => void changeSystemPrompt(id)}
-              disabled={isStreaming}
+              disabled={isStreaming || audioBusy}
             />
-            <KnowledgeSelector value={knowledge} onChange={(k) => void changeKnowledge(k)} disabled={isStreaming} />
+            <KnowledgeSelector value={knowledge} onChange={(k) => void changeKnowledge(k)} disabled={isStreaming || audioBusy} />
           </>
         }
       />

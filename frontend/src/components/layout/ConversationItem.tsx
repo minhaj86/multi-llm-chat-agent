@@ -1,4 +1,4 @@
-import { Check, MessageSquare, Pencil, Trash2, X } from 'lucide-react'
+import { Check, MessageSquare, Mic, Pencil, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { NavLink, useNavigate } from 'react-router'
 import type { Conversation } from '../../api/types'
@@ -98,8 +98,11 @@ export function ConversationItem({ conversation, activeId, onNavigate }: {
           className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-sm"
           title={conversation.title}
         >
-          <MessageSquare className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden="true" />
+          {conversation.type === 'AUDIO'
+            ? <Mic className="h-4 w-4 shrink-0 text-indigo-500" aria-hidden="true" />
+            : <MessageSquare className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden="true" />}
           <span className="truncate">{conversation.title}</span>
+          {conversation.type === 'AUDIO' && <span className="text-[10px] text-indigo-500">Audio</span>}
         </NavLink>
         <div className={cn('absolute right-1 flex items-center gap-0.5 rounded-md bg-inherit pl-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100', active && 'opacity-100')}>
           <button

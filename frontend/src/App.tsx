@@ -51,6 +51,7 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <ChatPage /> },
+      { path: 'audio', element: <ChatPage /> },
       { path: 'c/:conversationId', element: <ChatPage /> },
       {
         path: 'compare',

@@ -2,6 +2,7 @@ package com.example.aichat.api.conversation;
 
 import com.example.aichat.api.conversation.ConversationDtos.ConversationDetailResponse;
 import com.example.aichat.api.conversation.ConversationDtos.ConversationResponse;
+import com.example.aichat.api.conversation.ConversationDtos.AudioSelection;
 import com.example.aichat.api.conversation.ConversationDtos.CreateConversationRequest;
 import com.example.aichat.api.conversation.ConversationDtos.KnowledgeSelection;
 import com.example.aichat.api.conversation.ConversationDtos.MessageResponse;
@@ -85,5 +86,12 @@ public class ConversationController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@AuthenticationPrincipal CurrentUser user, @PathVariable("id") UUID id) {
         conversations.delete(user.id(), id);
+    }
+
+    @PutMapping("/{id}/audio")
+    public ConversationResponse changeAudio(@AuthenticationPrincipal CurrentUser user,
+                                            @PathVariable("id") UUID id,
+                                            @Valid @RequestBody AudioSelection request) {
+        return ConversationResponse.of(conversations.changeAudio(user.id(), id, request.toSettings()));
     }
 }

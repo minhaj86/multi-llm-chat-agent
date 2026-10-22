@@ -1,4 +1,4 @@
-import { Columns3, LogOut, MessageSquarePlus, Search, Settings, Shield, X } from 'lucide-react'
+import { Columns3, LogOut, MessageSquarePlus, Mic, Search, Settings, Shield, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router'
 import { useConversations } from '../../hooks/useConversations'
@@ -72,6 +72,9 @@ export function Sidebar({ open, onClose, onOpenSettings }: {
           >
             <MessageSquarePlus className="h-4 w-4" /> New chat
           </button>
+          <NavLink to="/audio" onClick={onClose} className={navClass}>
+            <Mic className="h-4 w-4" /> New audio chat
+          </NavLink>
           <NavLink to="/compare" onClick={onClose} className={navClass}>
             <Columns3 className="h-4 w-4" /> Compare models
           </NavLink>

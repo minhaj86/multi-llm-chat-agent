@@ -1,6 +1,8 @@
 package com.example.aichat.application.chat;
 
 import com.example.aichat.domain.conversation.KnowledgeSettings;
+import com.example.aichat.domain.conversation.ConversationType;
+import com.example.aichat.domain.conversation.AudioSettings;
 import java.util.UUID;
 
 /**
@@ -18,7 +20,14 @@ public record ChatCommand(UUID userId,
                           String model,
                           UUID systemPromptId,
                           String correlationId,
-                          KnowledgeSettings knowledge) {
+                          KnowledgeSettings knowledge,
+                          ConversationType type,
+                          AudioSettings audio) {
+
+    public ChatCommand(UUID userId, UUID conversationId, String message, String provider, String model,
+                       UUID systemPromptId, String correlationId, KnowledgeSettings knowledge) {
+        this(userId, conversationId, message, provider, model, systemPromptId, correlationId, knowledge, null, null);
+    }
 
     /** Without a knowledge selection: the conversation keeps its current knowledge settings. */
     public ChatCommand(UUID userId, UUID conversationId, String message, String provider, String model,

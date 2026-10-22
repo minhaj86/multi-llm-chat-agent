@@ -16,6 +16,7 @@ export function AppLayout() {
     if (location.pathname.startsWith('/compare')) {
       return 'Compare models'
     }
+    if (location.pathname === '/audio') return 'New audio chat'
     if (location.pathname.startsWith('/admin')) {
       return 'Administration'
     }

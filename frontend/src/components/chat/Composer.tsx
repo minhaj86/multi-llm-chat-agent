@@ -10,7 +10,7 @@ interface ComposerProps {
   disabledReason?: string | null
   maxLength?: number
   toolbar?: ReactNode
-  draft?: { text: string; nonce: number }
+  draft?: { text: string; nonce: number; append?: boolean }
   autoFocusKey?: string
 }
 
@@ -30,7 +30,7 @@ export function Composer({
 
   useEffect(() => {
     if (draft) {
-      setText(draft.text)
+      setText((previous) => draft.append && previous.trim() ? `${previous}\n${draft.text}` : draft.text)
       textareaRef.current?.focus()
     }
   }, [draft])

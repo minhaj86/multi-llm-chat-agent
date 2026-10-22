@@ -49,6 +49,14 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-sol}
       OPENAI_MODELS: ${OPENAI_MODELS:-}
+      # Speech-to-text is independent of the answering model, and may use a local compatible server.
+      AUDIO_TRANSCRIPTION_ENABLED: ${AUDIO_TRANSCRIPTION_ENABLED:-false}
+      AUDIO_TRANSCRIPTION_BASE_URL: ${AUDIO_TRANSCRIPTION_BASE_URL:-https://api.openai.com/v1}
+      AUDIO_TRANSCRIPTION_API_KEY: ${AUDIO_TRANSCRIPTION_API_KEY:-${OPENAI_API_KEY:-}}
+      AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-whisper-1}
+      AUDIO_TRANSCRIPTION_TIMEOUT: ${AUDIO_TRANSCRIPTION_TIMEOUT:-PT60S}
+      AUDIO_MAX_UPLOAD_BYTES: ${AUDIO_MAX_UPLOAD_BYTES:-10000000}
+      AUDIO_RATE_LIMIT: ${AUDIO_RATE_LIMIT:-10}
       # Qwen: defaults target the "qwen" profile container below; point elsewhere via .env.
       QWEN_BASE_URL: ${QWEN_BASE_URL:-http://qwen:8000/v1}
       QWEN_MODEL: ${QWEN_MODEL:-qwen}

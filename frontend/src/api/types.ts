@@ -68,6 +68,24 @@ export interface Conversation {
   createdAt: string
   updatedAt: string
   knowledge?: KnowledgeSettings
+  type?: 'TEXT' | 'AUDIO'
+  audio?: AudioSettings | null
+}
+
+export interface AudioSettings {
+  source: 'MICROPHONE' | 'SPEAKER'
+  maxOutputTokens: number | null
+  captureSeconds: number
+  autoSend: boolean
+}
+
+export interface AudioConfiguration {
+  enabled: boolean
+  maxUploadBytes: number
+}
+
+export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
+  source: 'MICROPHONE', maxOutputTokens: null, captureSeconds: 30, autoSend: false,
 }
 
 export interface ExecutionMetrics {

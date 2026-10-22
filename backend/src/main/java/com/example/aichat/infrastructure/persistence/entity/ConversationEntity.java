@@ -1,6 +1,8 @@
 package com.example.aichat.infrastructure.persistence.entity;
 
 import com.example.aichat.domain.conversation.Conversation;
+import com.example.aichat.domain.conversation.ConversationType;
+import com.example.aichat.domain.conversation.AudioSettings;
 import com.example.aichat.domain.conversation.KnowledgeSettings;
 import com.example.aichat.domain.conversation.TitleSource;
 import jakarta.persistence.Column;
@@ -48,6 +50,12 @@ public class ConversationEntity {
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "knowledge_collection_ids", nullable = false, columnDefinition = "uuid[]")
     private UUID[] knowledgeCollectionIds = new UUID[0];
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private ConversationType type;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "audio_settings", columnDefinition = "jsonb")
+    private AudioSettings audioSettings;
 
     protected ConversationEntity() {
     }
@@ -67,12 +75,15 @@ public class ConversationEntity {
         entity.updatedAt = conversation.updatedAt();
         entity.knowledgeEnabled = conversation.knowledge().enabled();
         entity.knowledgeCollectionIds = conversation.knowledge().collectionIds().toArray(UUID[]::new);
+        entity.type = conversation.type();
+        entity.audioSettings = conversation.audio();
         return entity;
     }
 
     public Conversation toDomain() {
         return new Conversation(id, userId, title, titleSource, systemPromptId, lastProvider, lastModel, summary,
                 summarizedUntil, createdAt, updatedAt, new KnowledgeSettings(knowledgeEnabled,
-                knowledgeCollectionIds == null ? Set.of() : Set.copyOf(Arrays.asList(knowledgeCollectionIds))));
+                knowledgeCollectionIds == null ? Set.of() : Set.copyOf(Arrays.asList(knowledgeCollectionIds))),
+                type, audioSettings);
     }
 }

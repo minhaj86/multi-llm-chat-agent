@@ -8,6 +8,8 @@ import com.example.aichat.application.prompt.SystemPromptService;
 import com.example.aichat.common.Texts;
 import com.example.aichat.common.Times;
 import com.example.aichat.domain.conversation.Conversation;
+import com.example.aichat.domain.conversation.ConversationType;
+import com.example.aichat.domain.conversation.AudioSettings;
 import com.example.aichat.domain.conversation.ConversationRepository;
 import com.example.aichat.domain.conversation.KnowledgeSettings;
 import com.example.aichat.domain.conversation.Message;
@@ -115,5 +117,14 @@ public class ConversationService {
     public void delete(UUID userId, UUID conversationId) {
         get(userId, conversationId);
         conversations.deleteById(conversationId);
+    }
+
+    @Transactional
+    public Conversation changeAudio(UUID userId, UUID conversationId, AudioSettings settings) {
+        Conversation conversation = get(userId, conversationId);
+        if (conversation.type() != ConversationType.AUDIO) {
+            throw new ValidationException("NOT_AUDIO_CHAT", "Audio settings require an audio conversation");
+        }
+        return conversations.save(conversation.withAudio(settings, Times.now(clock)));
     }
 }

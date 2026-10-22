@@ -7,7 +7,7 @@ export function TopBar({ onOpenSidebar, title }: { onOpenSidebar: () => void; ti
   const theme = usePreferences((s) => s.theme)
   const setTheme = usePreferences((s) => s.setTheme)
   const location = useLocation()
-  const showSelector = location.pathname === '/' || location.pathname.startsWith('/c/')
+  const showSelector = location.pathname === '/' || location.pathname === '/audio' || location.pathname.startsWith('/c/')
   const dark = resolveDarkMode(theme)
 
   return (

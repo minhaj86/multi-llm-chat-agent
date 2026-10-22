@@ -41,7 +41,13 @@ src/
 ```
 
 Routes: `/login`, `/register`, `/` (new chat), `/c/:conversationId`, `/compare`, `/admin`, `/admin/knowledge`,
-`/admin/knowledge/test`, `/admin/knowledge/:sourceId` (admin routes for administrators only).
+`/admin/knowledge/test`, `/admin/knowledge/:sourceId` (admin routes for administrators only), `/audio` (new audio chat).
+
+Audio chats use `AudioControls`, `useAudioCapture` and `lib/audioCapture.ts`. Capture is explicit and bounded; always
+release all tracks and abort uploads on unmount, including a permission grant that arrives after cancellation.
+Record only audio from display streams and request `suppressLocalAudioPlayback: false`. Transcription goes through
+`audioApi` to the backend, then through the existing text chat/RAG flow. Persist audio preferences on conversations;
+microphone device IDs stay in the browser. Never submit isolated MediaRecorder timeslice fragments as standalone files.
 
 ## Rules
 
