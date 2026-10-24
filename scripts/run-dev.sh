@@ -22,7 +22,8 @@ Options
   -y, --yes       Do not ask before stopping the backend/frontend containers of scripts/deploy.sh
 
 URLs: frontend http://localhost:5173 (proxies /api to the backend), backend http://localhost:8088.
-Configuration comes from .env; container hostnames (host.docker.internal, qwen, llama) are translated to localhost.
+Configuration comes from .env; container hostnames are translated to localhost.
+The bundled faster-whisper service starts automatically when selected and enabled in .env.
 Process ids and logs are kept in .run/.
 EOF
 }
@@ -139,6 +140,7 @@ start_backend() {
   SERVER_ADDRESS=127.0.0.1 \
   QWEN_BASE_URL="$(host_url "${QWEN_BASE_URL:-http://localhost:8001/v1}")" \
   LLAMA_BASE_URL="$(host_url "${LLAMA_BASE_URL:-http://localhost:8002/v1}")" \
+  AUDIO_TRANSCRIPTION_BASE_URL="$(host_url "${AUDIO_TRANSCRIPTION_BASE_URL:-https://api.openai.com/v1}")" \
     nohup "$(java_command)" ${java_opts[@]+"${java_opts[@]}"} -jar "$BACKEND_JAR" > "$RUN_DIR/backend.log" 2>&1 &
   echo $! > "$RUN_DIR/backend.pid"
 }
@@ -181,6 +183,7 @@ cmd_start() {
     stop_conflicting_containers
   fi
   start_database
+  start_audio_service
   start_backend
   start_frontend
   wait_or_show_log Backend "http://localhost:$DEV_BACKEND_PORT/actuator/health/readiness" "$TIMEOUT"

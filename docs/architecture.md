@@ -393,6 +393,12 @@ owner, so other users' conversations return 404.
 
 ### 6.7 Audio chat
 
+The optional `audio` Compose profile provides faster-whisper via the Speaches OpenAI-compatible server (CPU/int8).
+It downloads the configured model at startup and caches it in a named volume. Enabled configurations pointing to
+`http://faster-whisper:8000/v1` start this profile automatically through the deploy/dev scripts; dev mode maps the
+service URL to the loopback-published port (default 8003). External transcription URLs do not start it. Health probes
+use `/health` without inference. The existing transcription adapter and chat/RAG flow remain provider-neutral.
+
 Browser `getUserMedia` (microphone) or `getDisplayMedia` (speaker/tab) creates an independent capture stream.
 `MediaRecorder` records only its audio tracks, in bounded turns, with speaker playback suppression disabled.
 Navigation/cancellation stops every owned track and aborts the client upload. Shared video is never recorded.

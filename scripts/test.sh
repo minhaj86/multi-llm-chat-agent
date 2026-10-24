@@ -86,5 +86,5 @@ run_backend() {
 case "$SUITE" in
   frontend) run_frontend ;;
   backend) run_backend ;;
-  all) run_frontend; run_backend ;;
+  all) bash "$ROOT_DIR/scripts/tests/audio.test.sh"; run_frontend; run_backend ;;
 esac

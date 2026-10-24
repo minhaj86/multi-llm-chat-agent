@@ -29,6 +29,32 @@ export function AudioControls({ value, onChange, onTranscript, onBusyChange, dis
   const locked = busy || disabled || saving
   const support = captureSupport(value.source)
   const dirty = JSON.stringify(editing) !== JSON.stringify(value) || tokens !== (value.maxOutputTokens?.toString() ?? '')
+  const canStart = !locked && !dirty && !support && !!config.data?.enabled
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== ' ' || event.defaultPrevented || event.isComposing
+        || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+
+      // Keep native Space behavior for typing, focused controls and modal dialogs.
+      const target = event.target
+      if (target instanceof Element && target.closest(
+        'input, textarea, select, button, a[href], summary, [contenteditable], '
+        + '[role="button"], [role="link"], [role="textbox"], [role="combobox"], [role="listbox"], '
+        + '[role="menu"], [role="slider"], [role="checkbox"], [role="switch"], '
+        + '[role="dialog"], [role="alertdialog"], dialog',
+      )) return
+      if (document.querySelector('[aria-modal="true"], dialog[open]')) return
+      if (capture.status === 'idle' && !canStart) return
+
+      event.preventDefault()
+      if (event.repeat) return
+      if (capture.status === 'recording') capture.stop()
+      else if (canStart && config.data) void capture.start(value, config.data, deviceId)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [canStart, capture.status, capture.start, capture.stop, config.data, deviceId, value])
 
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
   useEffect(() => () => onBusyChange(false), [onBusyChange])
@@ -82,20 +108,26 @@ export function AudioControls({ value, onChange, onTranscript, onBusyChange, dis
           </div>
           <div className="flex items-center gap-2">
             {capture.status === 'idle' ? (
-              <Button variant="primary" disabled={locked || dirty || !!support || !config.data?.enabled}
+              <Button variant="primary" disabled={!canStart} aria-keyshortcuts="Space"
                 onClick={() => config.data && void capture.start(value, config.data, deviceId)}>
                 <Mic className="h-4 w-4" /> Start capture
               </Button>
             ) : (
               <>
                 {capture.status === 'recording' && (
-                  <Button variant="primary" onClick={capture.stop}><Square className="h-3 w-3" /> Stop and transcribe</Button>
+                  <Button variant="primary" onClick={capture.stop} aria-keyshortcuts="Space">
+                    <Square className="h-3 w-3" /> Stop and transcribe
+                  </Button>
                 )}
                 <Button variant="ghost" onClick={capture.cancel}>Cancel capture</Button>
               </>
             )}
           </div>
         </div>
+        <p className="text-xs text-zinc-600 dark:text-zinc-400">
+          Press <kbd className="rounded border border-zinc-300 px-1 dark:border-zinc-600">Space</kbd> to start or stop capture
+          when focus is outside text fields and other controls.
+        </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
           {value.source === 'SPEAKER'
             ? 'Choose a tab or screen in the sharing picker and enable Share audio. Playback stays on. System audio support depends on your browser and OS; shared video is never recorded or sent.'

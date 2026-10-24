@@ -32,6 +32,7 @@ scripts/deploy.sh                       # build images, start, wait for readines
 scripts/deploy.sh up --no-build         # start without rebuilding (fast)
 scripts/deploy.sh up --profile ollama   # also run Ollama in a container (CPU; port 11435)
 scripts/deploy.sh up --profile monitoring   # also run Prometheus on :9090
+scripts/deploy.sh up --profile audio        # faster-whisper via Speaches (CPU, :8003)
 scripts/deploy.sh up --fresh --yes      # wipe the database volume first (destroys users and conversations)
 ```
 
@@ -80,6 +81,13 @@ They are optional. The application keeps working when they are offline; the sele
   and `*_MODEL`.
 
 ## Troubleshooting
+
+Audio transcription: set `AUDIO_TRANSCRIPTION_ENABLED=true`, `AUDIO_TRANSCRIPTION_BASE_URL=http://faster-whisper:8000/v1`,
+`AUDIO_TRANSCRIPTION_MODEL=Systran/faster-whisper-small`, `AUDIO_TRANSCRIPTION_API_KEY=local`, and a CPU-appropriate
+timeout (for example `PT120S`). Deploy/dev scripts automatically start the bundled speech service for that URL and
+wait for its first model download. Dev mode maps the URL to localhost. The `faster-whisper-cache` volume retains the
+model. External transcription URLs never start the bundled service. Use `scripts/status.sh` and
+`scripts/deploy.sh logs faster-whisper` to inspect it; health checks must not perform transcription.
 
 | Symptom | Action |
 |---------|--------|

@@ -13,6 +13,7 @@ needed.
 ```bash
 scripts/test.sh                       # frontend checks, then all backend tests
 scripts/test.sh frontend              # tsc type check + oxlint + vitest
+bash scripts/tests/audio.test.sh      # script startup routing; fake container/health functions, no inference
 scripts/test.sh backend               # ./mvnw -B verify (unit + integration)
 scripts/test.sh backend --test QwenLlmProviderTest            # one class (comma-separated list or pattern)
 scripts/test.sh backend --test 'ChatFlowIntegrationTest#*cancel*'   # matching methods

@@ -22,7 +22,7 @@ LLM providers. Read this file first, then the guide for the area you are changin
   independent of the chat provider (OpenAI-compatible or offline hashing), PostgreSQL + pgvector, retrieval with
   citations, admin UI under `/admin/knowledge`.
 - **Runtime**: Docker Compose (`postgres` with pgvector, `backend`, `frontend`; optional profiles `qwen`, `llama`,
-  `ollama`, `monitoring`). Works with Docker or Podman.
+  `ollama`, `monitoring`, `audio` for faster-whisper/Speaches). Works with Docker or Podman.
 
 ## Repository map
 

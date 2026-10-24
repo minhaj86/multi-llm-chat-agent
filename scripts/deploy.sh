@@ -16,7 +16,7 @@ Commands
   ps         Show container status
 
 Options (up)
-  --profile NAME   Also start an optional profile: qwen, llama (NVIDIA GPU), ollama, monitoring. Repeatable.
+  --profile NAME   Also start an optional profile: qwen, llama (NVIDIA GPU), ollama, audio, monitoring. Repeatable.
   --no-build       Start existing images without rebuilding
   --pull           Pull newer base images while building
   --fresh          Delete the database volume first (all users and conversations are lost)
@@ -66,8 +66,8 @@ done
 PROFILE_FLAGS=()
 for profile in ${PROFILES[@]+"${PROFILES[@]}"}; do
   case "$profile" in
-    qwen|llama|ollama|monitoring) PROFILE_FLAGS+=(--profile "$profile") ;;
-    *) die "Unknown profile '$profile' (expected qwen, llama, ollama or monitoring)" ;;
+    qwen|llama|ollama|monitoring|audio) PROFILE_FLAGS+=(--profile "$profile") ;;
+    *) die "Unknown profile '$profile' (expected qwen, llama, ollama, audio or monitoring)" ;;
   esac
 done
 # "down" and "ps" must also see containers of optional profiles.
@@ -158,6 +158,9 @@ cmd_up() {
   detect_container_runtime
   ensure_env_file
   validate_env
+  if uses_bundled_audio; then
+    PROFILE_FLAGS+=(--profile audio)
+  fi
   info "Container engine: $(runtime_description)"
 
   if [ "$FRESH" = 1 ]; then
@@ -183,6 +186,7 @@ cmd_up() {
 }
 
 wait_for_stack() {
+  wait_for_audio_service
   wait_for_http "http://localhost:${BACKEND_PORT:-8088}/actuator/health/readiness" "Backend" "$TIMEOUT" \
     || die "The backend is not ready. Inspect it with: scripts/deploy.sh logs backend"
   wait_for_http "http://localhost:${FRONTEND_PORT:-3080}/" "Frontend" 60 \

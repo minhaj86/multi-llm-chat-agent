@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
 RUN_DIR="$ROOT_DIR/.run"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
-ALL_PROFILES=(qwen llama ollama monitoring)
+ALL_PROFILES=(qwen llama ollama monitoring audio)
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
@@ -191,8 +191,34 @@ host_url() {
     http://qwen:8000*) printf '%s' "${url/qwen:8000/localhost:8001}" ;;
     http://llama:8000*) printf '%s' "${url/llama:8000/localhost:8002}" ;;
     http://ollama:11434*) printf '%s' "${url/ollama:11434/localhost:${OLLAMA_PORT:-11435}}" ;;
+    http://faster-whisper:8000|http://faster-whisper:8000/*)
+      printf '%s' "${url/faster-whisper:8000/localhost:${FASTER_WHISPER_PORT:-8003}}" ;;
     *) printf '%s' "$url" ;;
   esac
+}
+
+# Only start the bundled STT server when it is the configured, enabled transcription service.
+uses_bundled_audio() {
+  [ "${AUDIO_TRANSCRIPTION_ENABLED:-false}" = true ] || return 1
+  case "${AUDIO_TRANSCRIPTION_BASE_URL:-}" in
+    http://faster-whisper:8000|http://faster-whisper:8000/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+start_audio_service() {
+  uses_bundled_audio || return 0
+  detect_container_runtime
+  info "Starting faster-whisper (first start downloads the speech model)"
+  compose --profile audio up -d faster-whisper
+  wait_for_audio_service
+}
+
+wait_for_audio_service() {
+  uses_bundled_audio || return 0
+  wait_for_http "http://localhost:${FASTER_WHISPER_PORT:-8003}/health" "faster-whisper" \
+    "${FASTER_WHISPER_STARTUP_TIMEOUT:-600}" \
+    || die "Speech service is not ready. Inspect it with: scripts/deploy.sh logs faster-whisper"
 }
 
 # Lists model ids of an OpenAI-compatible server (one per line).

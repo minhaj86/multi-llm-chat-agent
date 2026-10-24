@@ -120,6 +120,31 @@ services:
   # Optional local model servers (GPU). Not required for the application to start.
   # ---------------------------------------------------------------------------------------------------------------
 
+  # CPU speech-to-text: Speaches exposes faster-whisper through /v1/audio/transcriptions.
+  # Download the selected model on startup so the first recording does not pay the download cost.
+  faster-whisper:
+    profiles: [ audio ]
+    image: ${FASTER_WHISPER_IMAGE:-ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu}
+    environment:
+      WHISPER__INFERENCE_DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: ${FASTER_WHISPER_COMPUTE_TYPE:-int8}
+      WHISPER__CPU_THREADS: ${FASTER_WHISPER_CPU_THREADS:-4}
+      PRELOAD_MODELS: '["${AUDIO_TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}"]'
+      ENABLE_UI: "false"
+      LOG_LEVEL: warning
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    volumes:
+      - faster-whisper-cache:/home/ubuntu/.cache/huggingface/hub
+    ports:
+      - "127.0.0.1:${FASTER_WHISPER_PORT:-8003}:8000"
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "http://localhost:8000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    restart: unless-stopped
+
   # Qwen3 via vLLM (OpenAI-compatible, NVIDIA GPU). Served under the model name "qwen".
   qwen:
     profiles: [ qwen ]
@@ -229,3 +254,4 @@ volumes:
   huggingface-cache:
   llama-cache:
   ollama-data:
+  faster-whisper-cache:

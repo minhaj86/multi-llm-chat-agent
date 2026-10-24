@@ -224,6 +224,23 @@ check_model_servers() {
     add "Model servers" "OpenAI" info "no OPENAI_API_KEY in .env"
   fi
   check_embedding_server
+  check_audio_server
+}
+
+# Cheap readiness probe; never run transcription from status/health checks.
+check_audio_server() {
+  if [ "${AUDIO_TRANSCRIPTION_ENABLED:-false}" != true ]; then
+    add "Model servers" "Transcription" info "disabled (AUDIO_TRANSCRIPTION_ENABLED=false)"
+  elif uses_bundled_audio; then
+    local url="http://localhost:${FASTER_WHISPER_PORT:-8003}/health" status
+    status="$(http_status "$url" 3)"
+    case "$status" in
+      2??) add "Model servers" "Transcription" ok "faster-whisper · ${AUDIO_TRANSCRIPTION_MODEL:-Systran/faster-whisper-small} (CPU)" ;;
+      *) add "Model servers" "Transcription" warn "faster-whisper not ready (HTTP $status; first start downloads the model)" ;;
+    esac
+  else
+    add "Model servers" "Transcription" info "external service configured · ${AUDIO_TRANSCRIPTION_MODEL:-whisper-1}"
+  fi
 }
 
 # The embedding model of the knowledge base (independent of the chat providers).

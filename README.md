@@ -78,6 +78,12 @@ each capture then submits one prompt. Start capture again for the next turn. Tra
 are separate operations; this is not continuous background listening. Audio chats are saved with an **Audio** badge
 after their first prompt, and their settings survive reopening and regeneration.
 
+In an audio chat, press **Space** to start capture, then press **Space** again to stop and transcribe. Click outside
+the message box and other controls first: Space keeps its normal behavior while typing or using controls, and the
+shortcut is inactive in dialogs. Holding the key does not toggle repeatedly. The shortcut follows the same
+availability and saved-settings requirements as the capture buttons and waits during permission requests and
+transcription. Browser capture permission is still required.
+
 The browser captures a separate input stream. It does not change the system output device, mute playback, or route
 the recording back to the speakers. Speaker capture uses the browser's screen-sharing picker with local playback
 suppression disabled: select **Share audio**. Chrome/Edge on desktop support tab audio; full system audio depends
@@ -86,20 +92,36 @@ required. Display sharing may include a video track for permission purposes, but
 Leaving the chat or pressing **Cancel capture** releases its tracks and cancels any client upload. Cancelling an
 upload cannot undo transcription already performed by the upstream service.
 
-Configure speech-to-text independently of the chat models in `.env`, then redeploy. It is disabled by default:
+Configure speech-to-text independently of the chat models in `.env`. The included **faster-whisper** service uses
+[Speaches](https://github.com/speaches-ai/speaches) as an OpenAI-compatible HTTP server, with CPU/int8 inference:
 
 ```dotenv
 AUDIO_TRANSCRIPTION_ENABLED=true
-AUDIO_TRANSCRIPTION_BASE_URL=https://api.openai.com/v1
-AUDIO_TRANSCRIPTION_MODEL=whisper-1
-# Set AUDIO_TRANSCRIPTION_API_KEY or use the OPENAI_API_KEY fallback.
+AUDIO_TRANSCRIPTION_BASE_URL=http://faster-whisper:8000/v1
+AUDIO_TRANSCRIPTION_MODEL=Systran/faster-whisper-small
+AUDIO_TRANSCRIPTION_API_KEY=local
+AUDIO_TRANSCRIPTION_TIMEOUT=PT120S
 ```
 
-A local server implementing the OpenAI-compatible `POST /audio/transcriptions` multipart API can be used instead:
-set its base URL (including `/v1`, for example `http://host.docker.internal:8003/v1` in Compose), model name, and
-optional key. A chat-only server does not necessarily implement transcription. No transcription server is started
-automatically. In dev mode, use `localhost` for a host-local service; omit `AUDIO_TRANSCRIPTION_API_KEY` to inherit
-`OPENAI_API_KEY`, or set it explicitly. Compose uses that fallback when the audio key is empty too.
+With these settings, `scripts/deploy.sh` automatically enables the `audio` Compose profile, and
+`scripts/run-dev.sh start` starts the same speech container alongside the dev app. Restart an already running dev
+backend with `scripts/run-dev.sh restart --skip-build` to reload `.env`. Dev mode translates the service URL to
+`http://localhost:8003/v1`; the container backend uses the service name directly. No OpenAI key is needed. `local`
+is a placeholder to prevent inheriting a cloud key; the speech port is bound to loopback and the API is unauthenticated.
+
+The first start downloads the multilingual model into the persistent `faster-whisper-cache` volume and waits for
+readiness; later starts reuse it. `FASTER_WHISPER_STARTUP_TIMEOUT` defaults to 600 seconds for this download.
+`FASTER_WHISPER_PORT` defaults to 8003, `FASTER_WHISPER_CPU_THREADS` to 4, and `FASTER_WHISPER_COMPUTE_TYPE` to `int8`.
+Set `AUDIO_TRANSCRIPTION_MODEL` to another supported faster-whisper model and restart the speech service/backend
+to change the speed/accuracy tradeoff. `FASTER_WHISPER_IMAGE` pins the CPU Speaches image; this profile requires no GPU.
+`scripts/status.sh` reports speech readiness without transcribing. `scripts/deploy.sh logs faster-whisper` shows
+startup/download errors. Stopping dev processes leaves the speech container and cached model available, like PostgreSQL;
+`scripts/deploy.sh down` stops the containers, retaining data unless `--volumes` is explicitly requested.
+
+Speech capture remains opt-in in `.env.example`. Any other compatible `POST /audio/transcriptions` service can still
+be configured using its base URL, model and key; an external URL does not start the bundled server. For OpenAI use
+`https://api.openai.com/v1`, model `whisper-1`, and a valid audio API key (or omit it to inherit `OPENAI_API_KEY` in dev
+mode; Compose inherits that key when the audio key is empty too). A chat-only server may not implement transcription.
 
 `AUDIO_TRANSCRIPTION_TIMEOUT` defaults to `PT60S`; `AUDIO_MAX_UPLOAD_BYTES` to `10000000` (at most `25000000`);
 `AUDIO_RATE_LIMIT` to 10 transcription requests/minute/user. Keep the shared servlet and nginx multipart limits
