@@ -36,6 +36,8 @@ import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** OpenAI Responses API adapter - all calls go to WireMock, never to api.openai.com. */
 class OpenAiLlmProviderTest {
@@ -109,6 +111,25 @@ class OpenAiLlmProviderTest {
         server.verify(postRequestedFor(urlEqualTo("/v1/responses"))
                 .withRequestBody(matchingJsonPath("$.temperature", equalTo("0.4")))
                 .withRequestBody(notContaining("reasoning")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra"})
+    void gpt6BackgroundRequestsUseLowReasoningWithoutTemperature(String model) {
+        server.stubFor(post(urlEqualTo("/v1/responses")).willReturn(okJson("""
+                {"status":"completed","output":[{"type":"message",
+                  "content":[{"type":"output_text","text":"A useful title"}]}]}""")));
+        LlmRequest base = request(model);
+
+        LlmResponse response = provider().chat(base.withOptions(base.options()
+                .withTemperature(0.3).withMaxOutputTokens(512).withReasoning(ReasoningMode.DISABLED))).block();
+
+        assertThat(response.content()).isEqualTo("A useful title");
+        server.verify(postRequestedFor(urlEqualTo("/v1/responses"))
+                .withRequestBody(matchingJsonPath("$.model", equalTo(model)))
+                .withRequestBody(matchingJsonPath("$.max_output_tokens", equalTo("512")))
+                .withRequestBody(matchingJsonPath("$.reasoning.effort", equalTo("low")))
+                .withRequestBody(notContaining("temperature")));
     }
 
     @Test

@@ -60,7 +60,7 @@ public class ProviderProperties {
     /** OpenAI: whether responses may be stored by OpenAI ({@code store}). */
     private boolean store = false;
     /** OpenAI: model prefixes treated as reasoning models (no temperature, reasoning effort supported). */
-    private List<String> reasoningModelPrefixes = new ArrayList<>(List.of("o1", "o3", "o4", "gpt-5"));
+    private List<String> reasoningModelPrefixes = new ArrayList<>(List.of("o1", "o3", "o4", "gpt-5", "gpt-6"));
     /** OpenAI: reasoning effort for normal requests (empty = model default). */
     private String reasoningEffort;
     /** OpenAI: reasoning effort when the application asks for a fast answer (titles, summaries). */

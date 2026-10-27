@@ -4,6 +4,8 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
+import static com.github.tomakehurst.wiremock.client.WireMock.notContaining;
+import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
@@ -241,6 +243,42 @@ class ChatFlowIntegrationTest extends AbstractIntegrationTest {
         assertThat(done.get("estimatedCost").decimalValue()).isEqualByComparingTo("0.00125");
         WIREMOCK.verify(postRequestedFor(urlEqualTo("/openai/v1/responses"))
                 .withHeader("Authorization", equalTo("Bearer sk-test-integration-0123456789")));
+    }
+
+    @Test
+    void gpt6ChatAlsoGeneratesAndPersistsATitle() {
+        WIREMOCK.stubFor(post(urlEqualTo("/openai/v1/responses"))
+                .withRequestBody(matchingJsonPath("$.stream", equalTo("true")))
+                .willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(LlmTestSupport.namedSse(
+                        "response.output_text.delta", "{\"type\":\"response.output_text.delta\",\"delta\":\"Cloud answer\"}",
+                        "response.completed", "{\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}"))));
+        WIREMOCK.stubFor(post(urlEqualTo("/openai/v1/responses"))
+                .withRequestBody(matchingJsonPath("$.stream", equalTo("false")))
+                .willReturn(okJson("""
+                        {"status":"completed","output":[{"type":"message",
+                          "content":[{"type":"output_text","text":"Cloud Title"}]}]}""")));
+        // GPT-6 defaults to reasoning, which rejects the temperature requested by title generation.
+        WIREMOCK.stubFor(post(urlEqualTo("/openai/v1/responses")).atPriority(1)
+                .withRequestBody(matchingJsonPath("$.temperature"))
+                .willReturn(aResponse().withStatus(400).withHeader("Content-Type", "application/json").withBody("""
+                        {"error":{"type":"invalid_request_error","param":"temperature",
+                          "message":"Unsupported parameter: temperature"}}""")));
+        String token = register("gpt6-title-user");
+        Map<String, Object> request = chat("Hi", "openai", null);
+        request.put("model", "gpt-6-luna");
+
+        List<SseEvent> events = streamEvents("/api/chat/stream", request, token);
+
+        assertThat(SseEvent.text(events, "delta")).isEqualTo("Cloud answer");
+        assertThat(SseEvent.names(events)).contains("done", "title").doesNotContain("error");
+        String conversationId = SseEvent.first(events, "start").get("conversationId").asText();
+        assertThat(getJson("/api/conversations/" + conversationId, token).at("/conversation/title").asText())
+                .isEqualTo("Cloud Title");
+        WIREMOCK.verify(postRequestedFor(urlEqualTo("/openai/v1/responses"))
+                .withRequestBody(matchingJsonPath("$.stream", equalTo("false")))
+                .withRequestBody(matchingJsonPath("$.model", equalTo("gpt-6-luna")))
+                .withRequestBody(matchingJsonPath("$.reasoning.effort", equalTo("low")))
+                .withRequestBody(notContaining("temperature")));
     }
 
     @Test

@@ -482,10 +482,14 @@ Docker Compose host ports: `FRONTEND_PORT` (3080), `BACKEND_PORT` (8088), `POSTG
 
 Set `OPENAI_API_KEY`. The adapter uses the **Responses API** (`POST /v1/responses`): system messages become
 `instructions`, the conversation becomes `input`, streaming uses typed events (`response.output_text.delta`, …),
-responses are not stored by OpenAI (`store: false`). Reasoning models (prefixes `o1, o3, o4, gpt-5`, configurable via
+responses are not stored by OpenAI (`store: false`). Reasoning models (prefixes `o1, o3, o4, gpt-5, gpt-6`, configurable via
 `OPENAI_REASONING_MODEL_PREFIXES`) do not receive `temperature`; titles and summaries request
 `reasoning.effort=OPENAI_REASONING_DISABLED_EFFORT` (default `low`). Cost estimates use the `pricing` table in
 `application.yml` (longest model-prefix match) — verify it against current OpenAI pricing.
+
+If chat answers succeed but automatic titles fail with HTTP 400 after selecting a newer reasoning model, check
+`OPENAI_REASONING_MODEL_PREFIXES`. Include the model's family prefix so background title and summary requests omit
+unsupported `temperature` values. GPT-6 models (including GPT-6.1) are covered by the default `gpt-6` prefix.
 
 ### Runtime changes without restart
 

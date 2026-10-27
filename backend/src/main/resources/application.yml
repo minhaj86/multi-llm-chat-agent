@@ -235,7 +235,7 @@ llm:
       connect-timeout: PT10S
       health-timeout: PT10S
       store: false
-      reasoning-model-prefixes: ${OPENAI_REASONING_MODEL_PREFIXES:o1,o3,o4,gpt-5}
+      reasoning-model-prefixes: ${OPENAI_REASONING_MODEL_PREFIXES:o1,o3,o4,gpt-5,gpt-6}
       reasoning-effort: ${OPENAI_REASONING_EFFORT:}
       reasoning-disabled-effort: ${OPENAI_REASONING_DISABLED_EFFORT:low}
       retry:
