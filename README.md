@@ -631,6 +631,9 @@ After changing the model, affected sources are marked *needs reindex* and stay u
 ### Document ingestion
 
 - **Upload** a file (`POST /api/admin/knowledge/files`, multipart) or **add text** (`POST /api/admin/knowledge/text`).
+  In Admin → Knowledge base → **Add document**, select one or more files to upload together. Multiple files use their
+  filenames as titles and share the selected collection, tags and source URL. The dialog shows progress and errors
+  for each file; retry failed uploads or resolve/skip duplicates without uploading successful files again.
   Manual text is stored like an uploaded Markdown file, so it runs through the same pipeline (headings become
   sections) and can be edited later.
 - The request returns at once (`202 {"sourceId": "…", "status": "UPLOADED"}`); a bounded background pool

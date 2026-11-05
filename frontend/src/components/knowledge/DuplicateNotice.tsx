@@ -13,12 +13,13 @@ export function duplicatesOf(error: unknown): DuplicateSourceInfo[] | null {
 }
 
 /** "This document already exists" with the choices Cancel / Upload as new version / Replace existing. */
-export function DuplicateNotice({ existing, busy, onCancel, onNewVersion, onReplace }: {
+export function DuplicateNotice({ existing, busy, onCancel, onNewVersion, onReplace, cancelLabel = 'Cancel' }: {
   existing: DuplicateSourceInfo[]
   busy: boolean
   onCancel: () => void
   onNewVersion: () => void
   onReplace: () => void
+  cancelLabel?: string
 }) {
   const latest = existing[0]
   return (
@@ -35,7 +36,7 @@ export function DuplicateNotice({ existing, busy, onCancel, onNewVersion, onRepl
       )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>
-          Cancel
+          {cancelLabel}
         </Button>
         <Button size="sm" variant="outline" onClick={onNewVersion} loading={busy}>
           Upload as new version
